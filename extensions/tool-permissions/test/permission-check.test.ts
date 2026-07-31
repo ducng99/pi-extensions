@@ -1,0 +1,482 @@
+import { describe, expect, test, beforeAll } from "bun:test";
+import { checkPermission, isOutOfBounds } from "../src/permission-check.js";
+import type { ParsedPermissions } from "../src/permission-parsing.js";
+import { initParser } from "../../shared/bash-parser/index.js";
+
+// Initialize parser before all tests
+beforeAll(async () => {
+  await initParser();
+});
+
+function makePerms(opts: {
+  allow?: { category: string; pattern: string }[];
+  ask?: { category: string; pattern: string }[];
+  deny?: { category: string; pattern: string }[];
+}): ParsedPermissions {
+  return {
+    allow: (opts.allow ?? []).map((r) => ({ ...r, decision: "allow" as const })),
+    ask: (opts.ask ?? []).map((r) => ({ ...r, decision: "ask" as const })),
+    deny: (opts.deny ?? []).map((r) => ({ ...r, decision: "deny" as const })),
+  };
+}
+
+describe("checkPermission: bash sub-command parsing", () => {
+  test("denies `sleep 1; cat .env | echo` when `cat .env` is denied", () => {
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "cat .env" }] });
+    const result = checkPermission("bash", { command: "sleep 1; cat .env | echo" }, perms);
+    expect(result).toBe("deny");
+  });
+
+  test("denies when denied command is in a pipe", () => {
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "cat .env" }] });
+    const result = checkPermission("bash", { command: "cat .env | grep SECRET" }, perms);
+    expect(result).toBe("deny");
+  });
+
+  test("denies when denied command is in &&", () => {
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "cat .env" }] });
+    const result = checkPermission("bash", { command: "echo hello && cat .env" }, perms);
+    expect(result).toBe("deny");
+  });
+
+  test("denies when denied command is in ||", () => {
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "cat .env" }] });
+    const result = checkPermission("bash", { command: "false || cat .env" }, perms);
+    expect(result).toBe("deny");
+  });
+
+  test("denies when denied command is in a subshell", () => {
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "cat .env" }] });
+    const result = checkPermission("bash", { command: "(cat .env) | grep key" }, perms);
+    expect(result).toBe("deny");
+  });
+
+  test("asks when denied command is in command substitution", () => {
+    // Command substitutions return "complex", so we ask the user
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "cat .env" }] });
+    const result = checkPermission("bash", { command: "echo $(cat .env)" }, perms);
+    expect(result).toBe("ask");
+  });
+
+  test("allows when all sub-commands match allow rules", () => {
+    const perms = makePerms({
+      allow: [
+        { category: "bash", pattern: "echo *" },
+        { category: "bash", pattern: "ls *" },
+      ],
+    });
+    const result = checkPermission("bash", { command: "echo hello; ls -la" }, perms);
+    expect(result).toBe("allow");
+  });
+
+  test("asks when some sub-commands don't match any rule", () => {
+    const perms = makePerms({
+      allow: [{ category: "bash", pattern: "echo *" }],
+    });
+    const result = checkPermission("bash", { command: "echo hello; cat .env" }, perms);
+    expect(result).toBe("ask");
+  });
+
+  test("asks on complex commands (heredoc)", () => {
+    const perms = makePerms({
+      deny: [{ category: "bash", pattern: "cat" }],
+    });
+    const result = checkPermission("bash", { command: "cat <<EOF\nhello\nEOF" }, perms);
+    expect(result).toBe("ask");
+  });
+
+  test("asks on complex commands (process substitution)", () => {
+    const perms = makePerms({
+      deny: [{ category: "bash", pattern: "cat .env" }],
+    });
+    const result = checkPermission("bash", { command: "diff <(cat .env) <(cat .env.bak)" }, perms);
+    expect(result).toBe("ask");
+  });
+
+  test("deny takes priority: one denied sub-command overrides others being allowed", () => {
+    const perms = makePerms({
+      deny: [{ category: "bash", pattern: "cat .env" }],
+      allow: [{ category: "bash", pattern: "echo *" }],
+    });
+    const result = checkPermission("bash", { command: "echo hello; cat .env" }, perms);
+    expect(result).toBe("deny");
+  });
+
+  test("asks when command substitution is present", () => {
+    // Command substitutions return "complex", so we ask the user
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "cat *" }] });
+    const result = checkPermission("bash", { command: "echo $(cat .env)" }, perms);
+    expect(result).toBe("ask");
+  });
+
+  test("catch-all deny pattern * denies everything", () => {
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "*" }] });
+    const result = checkPermission("bash", { command: "echo hello; ls -la" }, perms);
+    expect(result).toBe("deny");
+  });
+
+  test("find -exec sub-command is checked", () => {
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "rm *" }] });
+    const result = checkPermission("bash", { command: "find . -name '*.tmp' -exec rm {} \\;" }, perms);
+    expect(result).toBe("deny");
+  });
+});
+
+describe("checkPermission: non-bash tools unchanged", () => {
+  test("read tool still works normally", () => {
+    const perms = makePerms({ deny: [{ category: "read", pattern: ".env" }] });
+    const result = checkPermission("read", { path: ".env" }, perms);
+    expect(result).toBe("deny");
+  });
+
+  test("edit tool still works normally", () => {
+    const perms = makePerms({ allow: [{ category: "edit", pattern: "src/*" }] });
+    const result = checkPermission("edit", { file_path: "src/main.ts" }, perms);
+    expect(result).toBe("allow");
+  });
+});
+
+describe("checkPermission: bash redirection patterns", () => {
+  test("allow `bun test *` permits `bun test 2>&1`", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "bun test *" }] });
+    const result = checkPermission("bash", { command: "bun test 2>&1" }, perms);
+    expect(result).toBe("allow");
+  });
+
+  test("allow `bun test *` permits `bun test --coverage 2>&1`", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "bun test *" }] });
+    const result = checkPermission("bash", { command: "bun test --coverage 2>&1" }, perms);
+    expect(result).toBe("allow");
+  });
+
+  test("allow `bun test *` permits `bun test > output.txt`", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "bun test *" }] });
+    const result = checkPermission("bash", { command: "bun test > output.txt" }, perms);
+    expect(result).toBe("allow");
+  });
+
+  test("deny `rm *` catches `rm file.txt 2>/dev/null`", () => {
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "rm *" }] });
+    const result = checkPermission("bash", { command: "rm file.txt 2>/dev/null" }, perms);
+    expect(result).toBe("deny");
+  });
+});
+
+describe("checkPermission: bash out-of-bounds paths", () => {
+  const cwd = "/home/user/project";
+
+  test("allows commands with paths inside cwd", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+    const result = checkPermission("bash", { command: "cat src/main.ts" }, perms, cwd);
+    expect(result).toBe("allow");
+  });
+
+  test("asks for commands with absolute paths outside cwd", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+    const result = checkPermission("bash", { command: "cat /etc/passwd" }, perms, cwd);
+    expect(result).toBe("ask");
+  });
+
+  test("asks for commands with relative paths outside cwd", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+    const result = checkPermission("bash", { command: "cat ../../../etc/passwd" }, perms, cwd);
+    expect(result).toBe("ask");
+  });
+
+  test("allows commands with paths in additional directories", () => {
+    const perms = makePerms({ 
+      allow: [{ category: "bash", pattern: "cat *" }],
+    });
+    perms.additionalDirectories = ["/home/user/shared"];
+    const result = checkPermission("bash", { command: "cat /home/user/shared/file.txt" }, perms, cwd);
+    expect(result).toBe("allow");
+  });
+
+  test("allows commands with relative paths to additional directories", () => {
+    const perms = makePerms({ 
+      allow: [{ category: "bash", pattern: "cat *" }],
+    });
+    perms.additionalDirectories = ["../shared"];
+    const result = checkPermission("bash", { command: "cat ../shared/file.txt" }, perms, cwd);
+    expect(result).toBe("allow");
+  });
+
+  test("asks for commands with paths outside cwd and additional dirs", () => {
+    const perms = makePerms({ 
+      allow: [{ category: "bash", pattern: "cat *" }],
+    });
+    perms.additionalDirectories = ["/home/user/shared"];
+    const result = checkPermission("bash", { command: "cat /home/user/other/file.txt" }, perms, cwd);
+    expect(result).toBe("ask");
+  });
+
+  test("allows commands with no paths", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "echo *" }] });
+    const result = checkPermission("bash", { command: "echo hello" }, perms, cwd);
+    expect(result).toBe("allow");
+  });
+
+  test("allows commands with flags but no paths", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "ls *" }] });
+    const result = checkPermission("bash", { command: "ls -la --color" }, perms, cwd);
+    expect(result).toBe("allow");
+  });
+
+  test("asks for commands with ./ paths outside cwd", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+    const result = checkPermission("bash", { command: "cat ./src/main.ts" }, perms, cwd);
+    expect(result).toBe("allow");
+  });
+
+  test("deny still takes priority over out-of-bounds", () => {
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "cat *" }] });
+    const result = checkPermission("bash", { command: "cat /etc/passwd" }, perms, cwd);
+    expect(result).toBe("deny");
+  });
+
+  test("checks paths in sub-commands", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "*" }] });
+    const result = checkPermission("bash", { command: "echo $(cat /etc/passwd)" }, perms, cwd);
+    expect(result).toBe("ask");
+  });
+
+  test("checks paths in piped commands", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "*" }] });
+    const result = checkPermission("bash", { command: "cat /etc/passwd | grep root" }, perms, cwd);
+    expect(result).toBe("ask");
+  });
+
+  test("asks for redirection to file outside cwd", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "echo *" }] });
+    const result = checkPermission("bash", { command: "echo hello > /etc/outside.txt" }, perms, cwd);
+    expect(result).toBe("ask");
+  });
+
+  test("asks for append redirection to file outside cwd", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "echo *" }] });
+    const result = checkPermission("bash", { command: "echo hello >> /etc/outside.txt" }, perms, cwd);
+    expect(result).toBe("ask");
+  });
+
+  test("asks for stderr redirection to file outside cwd", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "bun test *" }] });
+    const result = checkPermission("bash", { command: "bun test 2> /tmp/errors.log" }, perms, cwd);
+    expect(result).toBe("ask");
+  });
+
+  test("asks for combined output redirection to file outside cwd", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "bun test *" }] });
+    const result = checkPermission("bash", { command: "bun test &> /tmp/all.log" }, perms, cwd);
+    expect(result).toBe("ask");
+  });
+
+  test("allows redirection to file inside cwd", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "echo *" }] });
+    const result = checkPermission("bash", { command: "echo hello > output.txt" }, perms, cwd);
+    expect(result).toBe("allow");
+  });
+
+  test("allows redirection to /dev/null", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "bun test *" }] });
+    const result = checkPermission("bash", { command: "bun test 2>/dev/null" }, perms, cwd);
+    expect(result).toBe("allow");
+  });
+
+  test("allows fd-to-fd redirection (2>&1)", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "bun test *" }] });
+    const result = checkPermission("bash", { command: "bun test 2>&1" }, perms, cwd);
+    expect(result).toBe("allow");
+  });
+
+  test("asks for redirection in piped command to file outside cwd", () => {
+    const perms = makePerms({ allow: [{ category: "bash", pattern: "*" }] });
+    const result = checkPermission("bash", { command: "cat src/main.ts | grep TODO > /tmp/results.txt" }, perms, cwd);
+    expect(result).toBe("ask");
+  });
+});
+
+describe("checkPermission: bash `cd` auto-allow", () => {
+  const cwd = "/home/user/project";
+
+  test("auto-allows `cd` within cwd without explicit allow rule", () => {
+    const perms = makePerms({
+      allow: [{ category: "bash", pattern: "head *" }],
+    });
+    const result = checkPermission(
+      "bash",
+      { command: "cd /home/user/project/src && head -100 file.ts" },
+      perms,
+      cwd,
+    );
+    expect(result).toBe("allow");
+  });
+
+  test("auto-allows `cd` with relative path within cwd", () => {
+    const perms = makePerms({
+      allow: [{ category: "bash", pattern: "ls *" }],
+    });
+    const result = checkPermission(
+      "bash",
+      { command: "cd src/components && ls -la" },
+      perms,
+      cwd,
+    );
+    expect(result).toBe("allow");
+  });
+
+  test("auto-allows `cd` within additional directories", () => {
+    const perms = makePerms({
+      allow: [{ category: "bash", pattern: "echo *" }],
+    });
+    perms.additionalDirectories = ["/home/user/shared"];
+    const result = checkPermission(
+      "bash",
+      { command: "cd /home/user/shared && echo hello" },
+      perms,
+      cwd,
+    );
+    expect(result).toBe("allow");
+  });
+
+  test("asks for `cd` outside cwd and additional dirs", () => {
+    const perms = makePerms({
+      allow: [{ category: "bash", pattern: "echo *" }],
+    });
+    const result = checkPermission(
+      "bash",
+      { command: "cd /etc && echo hello" },
+      perms,
+      cwd,
+    );
+    expect(result).toBe("ask");
+  });
+
+  test("asks for `cd` with relative path escaping cwd", () => {
+    const perms = makePerms({
+      allow: [{ category: "bash", pattern: "echo *" }],
+    });
+    const result = checkPermission(
+      "bash",
+      { command: "cd ../../../etc && echo hello" },
+      perms,
+      cwd,
+    );
+    expect(result).toBe("ask");
+  });
+
+  test("deny rule still takes priority over cd auto-allow", () => {
+    const perms = makePerms({
+      deny: [{ category: "bash", pattern: "cd /etc*" }],
+      allow: [{ category: "bash", pattern: "echo *" }],
+    });
+    const result = checkPermission(
+      "bash",
+      { command: "cd /etc && echo hello" },
+      perms,
+      cwd,
+    );
+    expect(result).toBe("deny");
+  });
+
+  test("auto-allows `cd` with flags like -P", () => {
+    const perms = makePerms({
+      allow: [{ category: "bash", pattern: "echo *" }],
+    });
+    const result = checkPermission(
+      "bash",
+      { command: "cd -P /home/user/project/src && echo hello" },
+      perms,
+      cwd,
+    );
+    expect(result).toBe("allow");
+  });
+
+  test("does not auto-allow `cd` without a path argument", () => {
+    const perms = makePerms({
+      allow: [{ category: "bash", pattern: "echo *" }],
+    });
+    const result = checkPermission(
+      "bash",
+      { command: "cd && echo hello" },
+      perms,
+      cwd,
+    );
+    // `cd` alone with no arg doesn't match isCdInBounds, so it asks
+    expect(result).toBe("ask");
+  });
+});
+
+describe("checkPermission: deny rules apply before complexity check", () => {
+  test("deny rule matches complex command with heredoc", () => {
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "cat <<EOF" }] });
+    const result = checkPermission("bash", { command: "cat <<EOF\nhello\nEOF" }, perms);
+    expect(result).toBe("deny");
+  });
+
+  test("deny rule matches complex command with process substitution", () => {
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "diff *" }] });
+    const result = checkPermission("bash", { command: "diff <(cat .env) <(cat .env.bak)" }, perms);
+    expect(result).toBe("deny");
+  });
+
+  test("deny rule with wildcard matches complex command", () => {
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "cat *" }] });
+    const result = checkPermission("bash", { command: "cat <<EOF\nhello\nEOF" }, perms);
+    expect(result).toBe("deny");
+  });
+
+  test("deny rule matches command with unterminated quote", () => {
+    const perms = makePerms({ deny: [{ category: "bash", pattern: "echo *" }] });
+    const result = checkPermission("bash", { command: 'echo "unterminated' }, perms);
+    expect(result).toBe("deny");
+  });
+});
+
+describe("isOutOfBounds: bash commands", () => {
+  const cwd = "/home/user/project";
+
+  test("returns false for bash command with paths inside cwd", () => {
+    const result = isOutOfBounds("bash", { command: "cat src/main.ts" }, cwd, []);
+    expect(result).toBe(false);
+  });
+
+  test("returns true for bash command reading file outside cwd", () => {
+    const result = isOutOfBounds("bash", { command: "cat /etc/passwd" }, cwd, []);
+    expect(result).toBe(true);
+  });
+
+  test("returns true for bash command writing to file outside cwd via redirection", () => {
+    const result = isOutOfBounds("bash", { command: "echo hello > /tmp/output.txt" }, cwd, []);
+    expect(result).toBe(true);
+  });
+
+  test("returns false for bash command with path in additional directory", () => {
+    const result = isOutOfBounds("bash", { command: "cat /home/user/shared/file.txt" }, cwd, ["/home/user/shared"]);
+    expect(result).toBe(false);
+  });
+
+  test("returns true for bash command with path outside cwd and additional dirs", () => {
+    const result = isOutOfBounds("bash", { command: "cat /home/user/other/file.txt" }, cwd, ["/home/user/shared"]);
+    expect(result).toBe(true);
+  });
+
+  test("returns false for bash command with no paths", () => {
+    const result = isOutOfBounds("bash", { command: "echo hello" }, cwd, []);
+    expect(result).toBe(false);
+  });
+
+  test("returns false for non-bash tool inside cwd", () => {
+    const result = isOutOfBounds("read", { path: "src/main.ts" }, cwd, []);
+    expect(result).toBe(false);
+  });
+
+  test("returns true for non-bash tool outside cwd", () => {
+    const result = isOutOfBounds("read", { path: "/etc/passwd" }, cwd, []);
+    expect(result).toBe(true);
+  });
+
+  test("returns false for unknown tool", () => {
+    const result = isOutOfBounds("unknown-tool", { path: "/etc/passwd" }, cwd, []);
+    expect(result).toBe(false);
+  });
+});

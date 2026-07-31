@@ -1,0 +1,21 @@
+{
+  "name": "my-ext",
+  "dependencies": {
+    "web-tree-sitter": "^0.26.11"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/tool-permissions/index.ts",
+      "./extensions/ask-user-questions/index.ts"
+    ]
+  },
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*",
+    "typescript": "^6"
+  }
+}
