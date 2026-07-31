@@ -19,6 +19,7 @@ export interface QuestionResult {
     header: string;
     selectedIndices: number[];
     selectedLabels: string[];
+    customText?: string;
 }
 
 export interface AskQuestionsResult {

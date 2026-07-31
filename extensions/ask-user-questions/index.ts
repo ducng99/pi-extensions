@@ -72,6 +72,9 @@ export default function askUserQuestions(pi: ExtensionAPI) {
 
             const answerLines = result.answers.map((a) => {
                 const q = questions[a.questionIndex]!;
+                if (a.customText) {
+                    return `${q.header}: "${a.customText}"`;
+                }
                 if (a.selectedLabels.length === 0) {
                     return `${q.header}: (no answer)`;
                 }

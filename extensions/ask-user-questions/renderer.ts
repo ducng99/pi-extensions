@@ -47,6 +47,9 @@ export function renderResult(
         if (!q) return "";
         const icon = theme.fg("success", "✓");
         const header = theme.fg("accent", q.header);
+        if (a.customText) {
+            return `${icon} ${header}: ${theme.fg("text", `"${a.customText}"`)}`;
+        }
         if (a.selectedLabels.length === 0) {
             return `${icon} ${header}: ${theme.fg("muted", "(no answer)")}`;
         }
