@@ -1,18 +1,20 @@
-import { describe, expect, test, beforeAll } from "bun:test";
-import { parseBashCommand, initParser, type ParsedCommand } from "../bash-parser/index.js";
+import { beforeAll, describe, expect, test } from "bun:test";
+
+import { initParser, parseBashCommand } from "../bash-parser/index.js";
 
 /**
  * Helper: extract just the arg strings from parsed results.
  */
 function argStrings(cmd: string): string[] {
-  const result = parseBashCommand(cmd);
-  if (result.kind === "complex") return ["__COMPLEX__"];
-  return result.commands.map((c) => c.argString);
+    const result = parseBashCommand(cmd);
+    if (result.kind === "error") return ["__ERROR__"];
+    if (result.kind === "complex") return ["__COMPLEX__"];
+    return result.commands.map(c => c.argString);
 }
 
 // Initialize parser before all tests
 beforeAll(async () => {
-  await initParser();
+    await initParser();
 });
 
 // ============================================================================
@@ -20,33 +22,33 @@ beforeAll(async () => {
 // ============================================================================
 
 describe("simple commands", () => {
-  test("single command", () => {
-    expect(argStrings("ls")).toEqual(["ls"]);
-  });
+    test("single command", () => {
+        expect(argStrings("ls")).toEqual(["ls"]);
+    });
 
-  test("command with args", () => {
-    expect(argStrings("cat .env")).toEqual(["cat .env"]);
-  });
+    test("command with args", () => {
+        expect(argStrings("cat .env")).toEqual(["cat .env"]);
+    });
 
-  test("command with flags", () => {
-    expect(argStrings("ls -la /tmp")).toEqual(["ls -la /tmp"]);
-  });
+    test("command with flags", () => {
+        expect(argStrings("ls -la /tmp")).toEqual(["ls -la /tmp"]);
+    });
 
-  test("trims extra whitespace", () => {
-    expect(argStrings("  cat   .env  ")).toEqual(["cat .env"]);
-  });
+    test("trims extra whitespace", () => {
+        expect(argStrings("  cat   .env  ")).toEqual(["cat .env"]);
+    });
 
-  test("empty command", () => {
-    expect(argStrings("")).toEqual([]);
-  });
+    test("empty command", () => {
+        expect(argStrings("")).toEqual([]);
+    });
 
-  test("quoted args stay together", () => {
-    expect(argStrings('echo "hello world"')).toEqual(['echo "hello world"']);
-  });
+    test("quoted args stay together", () => {
+        expect(argStrings("echo \"hello world\"")).toEqual(["echo \"hello world\""]);
+    });
 
-  test("single quoted args stay together", () => {
-    expect(argStrings("echo 'hello world'")).toEqual(["echo 'hello world'"]);
-  });
+    test("single quoted args stay together", () => {
+        expect(argStrings("echo 'hello world'")).toEqual(["echo 'hello world'"]);
+    });
 });
 
 // ============================================================================
@@ -54,48 +56,48 @@ describe("simple commands", () => {
 // ============================================================================
 
 describe("command separators", () => {
-  test("semicolon separates commands", () => {
-    const result = argStrings("sleep 1; cat .env");
-    expect(result).toContain("sleep 1");
-    expect(result).toContain("cat .env");
-  });
+    test("semicolon separates commands", () => {
+        const result = argStrings("sleep 1; cat .env");
+        expect(result).toContain("sleep 1");
+        expect(result).toContain("cat .env");
+    });
 
-  test("pipe separates commands", () => {
-    const result = argStrings("cat .env | echo");
-    expect(result).toContain("cat .env");
-    expect(result).toContain("echo");
-  });
+    test("pipe separates commands", () => {
+        const result = argStrings("cat .env | echo");
+        expect(result).toContain("cat .env");
+        expect(result).toContain("echo");
+    });
 
-  test("&& separates commands", () => {
-    const result = argStrings("make build && make install");
-    expect(result).toContain("make build");
-    expect(result).toContain("make install");
-  });
+    test("&& separates commands", () => {
+        const result = argStrings("make build && make install");
+        expect(result).toContain("make build");
+        expect(result).toContain("make install");
+    });
 
-  test("|| separates commands", () => {
-    const result = argStrings("curl http://example.com || echo failed");
-    expect(result).toContain("curl http://example.com");
-    expect(result).toContain("echo failed");
-  });
+    test("|| separates commands", () => {
+        const result = argStrings("curl http://example.com || echo failed");
+        expect(result).toContain("curl http://example.com");
+        expect(result).toContain("echo failed");
+    });
 
-  test("background & separates commands", () => {
-    const result = argStrings("sleep 1 & echo done");
-    expect(result).toContain("sleep 1");
-    expect(result).toContain("echo done");
-  });
+    test("background & separates commands", () => {
+        const result = argStrings("sleep 1 & echo done");
+        expect(result).toContain("sleep 1");
+        expect(result).toContain("echo done");
+    });
 
-  test("newline separates commands", () => {
-    const result = argStrings("ls\ncat .env");
-    expect(result).toContain("ls");
-    expect(result).toContain("cat .env");
-  });
+    test("newline separates commands", () => {
+        const result = argStrings("ls\ncat .env");
+        expect(result).toContain("ls");
+        expect(result).toContain("cat .env");
+    });
 
-  test("complex chain: sleep 1; cat .env | echo", () => {
-    const result = argStrings("sleep 1; cat .env | echo");
-    expect(result).toContain("sleep 1");
-    expect(result).toContain("cat .env");
-    expect(result).toContain("echo");
-  });
+    test("complex chain: sleep 1; cat .env | echo", () => {
+        const result = argStrings("sleep 1; cat .env | echo");
+        expect(result).toContain("sleep 1");
+        expect(result).toContain("cat .env");
+        expect(result).toContain("echo");
+    });
 });
 
 // ============================================================================
@@ -103,39 +105,41 @@ describe("command separators", () => {
 // ============================================================================
 
 describe("command substitutions", () => {
-  test("$(...) is complex", () => {
-    const result = parseBashCommand("echo $(cat .env)");
-    expect(result.kind).toBe("complex");
-  });
+    test("$(...) is complex", () => {
+        const result = parseBashCommand("echo $(cat .env)");
+        expect(result.kind).toBe("complex");
+        expect(result.commands).toEqual([{ argString: "echo $(cat .env)" }]);
+    });
 
-  test("backtick is complex", () => {
-    const result = parseBashCommand("echo `cat .env`");
-    expect(result.kind).toBe("complex");
-  });
+    test("backtick is complex", () => {
+        const result = parseBashCommand("echo `cat .env`");
+        expect(result.kind).toBe("complex");
+    });
 
-  test("nested command substitution is complex", () => {
-    const result = parseBashCommand("echo $(echo $(cat .env))");
-    expect(result.kind).toBe("complex");
-  });
+    test("nested command substitution is complex", () => {
+        const result = parseBashCommand("echo $(echo $(cat .env))");
+        expect(result.kind).toBe("complex");
+    });
 });
 
 // ============================================================================
-// Subshells: (...)
+// Subshells: (...) → "complex" (we do not recurse into them)
 // ============================================================================
 
 describe("subshells", () => {
-  test("(cmd) extracts inner command", () => {
-    const result = argStrings("(cat .env) | grep key");
-    expect(result).toContain("cat .env");
-    expect(result).toContain("grep key");
-  });
+    test("(cmd) | grep is a complex top-level command", () => {
+        const result = parseBashCommand("(cat .env) | grep key");
+        expect(result.kind).toBe("complex");
+        expect(result.commands).toEqual([
+            { argString: "(cat .env)" },
+            { argString: "grep key" },
+        ]);
+    });
 
-  test("subshell with multiple commands", () => {
-    const result = argStrings("(ls; cat .env) | wc");
-    expect(result).toContain("ls");
-    expect(result).toContain("cat .env");
-    expect(result).toContain("wc");
-  });
+    test("subshell with multiple commands is complex", () => {
+        const result = parseBashCommand("(ls; cat .env) | wc");
+        expect(result.kind).toBe("complex");
+    });
 });
 
 // ============================================================================
@@ -143,48 +147,54 @@ describe("subshells", () => {
 // ============================================================================
 
 describe("find -exec and xargs", () => {
-  test("find -exec extracts the exec command", () => {
-    const result = argStrings("find . -name '*.ts' -exec cat {} \\;");
-    expect(result).toContain("cat {}");
-  });
+    test("find -exec is a complex top-level command", () => {
+        const result = parseBashCommand("find . -name '*.ts' -exec cat {} \\;");
+        expect(result.kind).toBe("complex");
+        expect(result.commands).toEqual([
+            { argString: "find . -name '*.ts' -exec cat {} \\;" },
+        ]);
+    });
 
-  test("find -exec with multiple args", () => {
-    const result = argStrings("find . -exec rm -rf {} \\;");
-    expect(result).toContain("rm -rf {}");
-  });
+    test("find -exec with multiple args is complex", () => {
+        const result = parseBashCommand("find . -exec rm -rf {} \\;");
+        expect(result.kind).toBe("complex");
+    });
 
-  test("xargs extracts the piped command", () => {
-    // xargs gets its command from stdin, but we can check the xargs line itself
-    const result = argStrings("cat .env | xargs rm");
-    expect(result).toContain("cat .env");
-    expect(result).toContain("xargs rm");
-  });
+    test("xargs extracts the piped command", () => {
+        const result = argStrings("cat .env | xargs rm");
+        expect(result).toContain("cat .env");
+        expect(result).toContain("xargs rm");
+    });
 });
 
 // ============================================================================
-// Redirections (should not affect command extraction)
+// Redirections (kept as part of the top-level command)
 // ============================================================================
 
 describe("redirections", () => {
-  test("output redirection", () => {
-    const result = argStrings("cat .env > output.txt");
-    expect(result).toContain("cat .env");
-  });
+    test("output redirection is kept", () => {
+        const result = parseBashCommand("cat .env > output.txt");
+        expect(result.kind).toBe("commands");
+        expect(result.commands).toEqual([{ argString: "cat .env > output.txt" }]);
+    });
 
-  test("input redirection", () => {
-    const result = argStrings("cat < input.txt");
-    expect(result).toContain("cat");
-  });
+    test("input redirection is kept", () => {
+        const result = parseBashCommand("cat < input.txt");
+        expect(result.kind).toBe("commands");
+        expect(result.commands).toEqual([{ argString: "cat < input.txt" }]);
+    });
 
-  test("stderr redirection", () => {
-    const result = argStrings("cat .env 2>/dev/null");
-    expect(result).toContain("cat .env");
-  });
+    test("stderr redirection is kept", () => {
+        const result = parseBashCommand("cat .env 2>/dev/null");
+        expect(result.kind).toBe("commands");
+        expect(result.commands).toEqual([{ argString: "cat .env 2>/dev/null" }]);
+    });
 
-  test("append redirection", () => {
-    const result = argStrings("cat .env >> output.txt");
-    expect(result).toContain("cat .env");
-  });
+    test("append redirection is kept", () => {
+        const result = parseBashCommand("cat .env >> output.txt");
+        expect(result.kind).toBe("commands");
+        expect(result.commands).toEqual([{ argString: "cat .env >> output.txt" }]);
+    });
 });
 
 // ============================================================================
@@ -192,45 +202,50 @@ describe("redirections", () => {
 // ============================================================================
 
 describe("quoting", () => {
-  test("semicolons inside double quotes are not separators", () => {
-    const result = argStrings('echo "hello; world"');
-    expect(result).toEqual(['echo "hello; world"']);
-  });
+    test("semicolons inside double quotes are not separators", () => {
+        const result = argStrings("echo \"hello; world\"");
+        expect(result).toEqual(["echo \"hello; world\""]);
+    });
 
-  test("pipes inside single quotes are not separators", () => {
-    const result = argStrings("echo 'hello | world'");
-    expect(result).toEqual(["echo 'hello | world'"]);
-  });
+    test("pipes inside single quotes are not separators", () => {
+        const result = argStrings("echo 'hello | world'");
+        expect(result).toEqual(["echo 'hello | world'"]);
+    });
 
-  test("escaped semicolon is not a separator", () => {
-    const result = argStrings("echo hello\\; world");
-    expect(result).toEqual(["echo hello\\; world"]);
-  });
+    test("escaped semicolon is not a separator", () => {
+        const result = argStrings("echo hello\\; world");
+        expect(result).toEqual(["echo hello\\; world"]);
+    });
 });
 
 // ============================================================================
-// Complex cases → should return "complex"
+// Complex cases → "complex" (deny rules only)
 // ============================================================================
 
 describe("complex cases fall back to ask", () => {
-  test("process substitution <()", () => {
-    const result = parseBashCommand("diff <(cat .env) <(cat .env.bak)");
-    expect(result.kind).toBe("complex");
-  });
+    test("process substitution <()", () => {
+        const result = parseBashCommand("diff <(cat .env) <(cat .env.bak)");
+        expect(result.kind).toBe("complex");
+    });
 
-  test("process substitution >()", () => {
-    const result = parseBashCommand("cat > >(tee log.txt)");
-    expect(result.kind).toBe("complex");
-  });
+    test("process substitution >()", () => {
+        const result = parseBashCommand("cat > >(tee log.txt)");
+        expect(result.kind).toBe("complex");
+    });
 
-  test("heredoc", () => {
-    const result = parseBashCommand("cat <<EOF\nhello\nEOF");
-    expect(result.kind).toBe("complex");
-  });
+    test("heredoc", () => {
+        const result = parseBashCommand("cat <<EOF\nhello\nEOF");
+        expect(result.kind).toBe("complex");
+    });
+});
 
-  test("unterminated quote is complex", () => {
-    // Tree-sitter creates ERROR node for unterminated quotes
-    const result = parseBashCommand('echo "unterminated');
-    expect(result.kind).toBe("complex");
-  });
+// ============================================================================
+// Error cases → "error" (ask user)
+// ============================================================================
+
+describe("error cases fall back to ask", () => {
+    test("unterminated quote is error", () => {
+        const result = parseBashCommand("echo \"unterminated");
+        expect(result.kind).toBe("error");
+    });
 });

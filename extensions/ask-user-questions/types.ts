@@ -3,26 +3,26 @@
  */
 
 export interface AnswerOption {
-  label: string;
-  description: string;
+    label: string;
+    description: string;
 }
 
 export interface Question {
-  header: string;
-  question: string;
-  answers: AnswerOption[];
-  multipleChoice: boolean;
+    header: string;
+    question: string;
+    answers: AnswerOption[];
+    multipleChoice: boolean;
 }
 
 export interface QuestionResult {
-  questionIndex: number;
-  header: string;
-  selectedIndices: number[];
-  selectedLabels: string[];
+    questionIndex: number;
+    header: string;
+    selectedIndices: number[];
+    selectedLabels: string[];
 }
 
 export interface AskQuestionsResult {
-  questions: Question[];
-  answers: QuestionResult[];
-  cancelled: boolean;
+    questions: Question[];
+    answers: QuestionResult[];
+    cancelled: boolean;
 }
