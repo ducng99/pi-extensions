@@ -24,6 +24,8 @@ import { Language, Node, Parser } from "web-tree-sitter";
 export interface LeafCommand {
     /** The reconstructed arg string for this top-level command */
     argString: string;
+    /** The raw argument tokens as tree-sitter extracted them */
+    args: string[];
 }
 
 // Alias for backward compatibility with tests
@@ -36,6 +38,7 @@ export type ParseResult
 
 interface ExtractedCommand {
     argString: string;
+    args: string[];
     isComplex: boolean;
 }
 
@@ -109,12 +112,6 @@ export function isParserInitialized(): boolean {
 // AST Walking: Extract top-level commands
 // ============================================================================
 
-const SEPARATOR_TYPES = new Set([";", "&", "&&", "||", "\n", "newline"]);
-
-function isSeparator(type: string): boolean {
-    return SEPARATOR_TYPES.has(type);
-}
-
 const COMPLEX_NODE_TYPES = new Set([
     "subshell",
     "command_substitution",
@@ -132,6 +129,99 @@ const COMPLEX_NODE_TYPES = new Set([
 
 function isComplexNodeType(type: string): boolean {
     return COMPLEX_NODE_TYPES.has(type);
+}
+
+/**
+ * Nodes that contain other commands and should be recursed into.
+ */
+const CONTAINER_NODE_TYPES = new Set([
+    "program",
+    "command_list",
+    "list",
+    "logical_expression",
+    "pipeline",
+    "redirected_statement",
+]);
+
+function isContainerNode(type: string): boolean {
+    return CONTAINER_NODE_TYPES.has(type);
+}
+
+/**
+ * Nodes that represent an individual command (or a complex structure we keep
+ * whole, such as a subshell or control structure).
+ */
+const COMMAND_NODE_TYPES = new Set([
+    "command",
+    "declaration_command",
+    "negated_command",
+    "test_command",
+    "subshell",
+    "command_substitution",
+    "process_substitution",
+    "function_definition",
+    "for_statement",
+    "while_statement",
+    "if_statement",
+    "case_statement",
+    "select_statement",
+]);
+
+function isCommandLeaf(type: string): boolean {
+    return COMMAND_NODE_TYPES.has(type);
+}
+
+function isCommandNode(node: Node): boolean {
+    return isContainerNode(node.type) || isCommandLeaf(node.type);
+}
+
+/**
+ * Argument-bearing node types that appear as children of a command node.
+ */
+const ARGUMENT_NODE_TYPES = new Set([
+    "word",
+    "string",
+    "raw_string",
+    "number",
+    "simple_expansion",
+    "expansion",
+    "concatenation",
+    "command_name",
+]);
+
+function isArgumentNode(node: Node): boolean {
+    return ARGUMENT_NODE_TYPES.has(node.type);
+}
+
+/**
+ * Extract the raw argument tokens from a command-ish AST node.
+ * The first token is the command name, followed by its arguments.
+ */
+function extractArgs(node: Node): string[] {
+    const args: string[] = [];
+
+    if (node.type === "negated_command") {
+        // ! <command> — recurse into the actual command.
+        for (const child of node.children) {
+            if (isCommandLeaf(child.type) || child.type === "command") {
+                return extractArgs(child);
+            }
+        }
+        return args;
+    }
+
+    for (const child of node.children) {
+        if (child.type === "command_name") {
+            // command_name's own child word holds the name; command_name.text
+            // is also the name, so use it directly.
+            args.push(child.text);
+        }
+        else if (isArgumentNode(child)) {
+            args.push(child.text);
+        }
+    }
+
+    return args;
 }
 
 function hasComplexDescendant(node: Node): boolean {
@@ -184,31 +274,74 @@ function extractTopLevelCommands(node: Node): ExtractedCommand[] {
     switch (node.type) {
         case "program":
         case "command_list":
-        case "logical_expression": {
-            for (const child of node.children) {
-                if (isSeparator(child.type)) continue;
-                commands.push(...extractTopLevelCommands(child));
-            }
-            break;
-        }
-
+        case "list":
+        case "logical_expression":
         case "pipeline": {
+            // Recurse into the tree-sitter-identified command/container children.
+            // We do not skip separator nodes manually; we only follow the
+            // command-bearing branches.
             for (const child of node.children) {
-                if (child.type === "|" || child.type === "|&") continue;
-                commands.push(...extractTopLevelCommands(child));
+                if (isCommandNode(child)) {
+                    commands.push(...extractTopLevelCommands(child));
+                }
             }
             break;
         }
 
         case "command":
-        case "redirected_statement":
         case "declaration_command":
         case "negated_command":
         case "test_command": {
             commands.push({
                 argString: normalizeCommandText(node.text),
+                args: extractArgs(node),
                 isComplex: isComplexCommand(node),
             });
+            break;
+        }
+
+        case "redirected_statement": {
+            // A redirected_statement can wrap either a single command with
+            // redirections (e.g., `cat > file`, `cat > >(cmd)`, `cat <<EOF`) or
+            // a list/pipeline/logical expression (e.g., `cd /a && echo 2>&1`).
+            // For a single command, keep the whole statement as one command so
+            // complex redirects (process substitution, heredoc) are preserved.
+            // For a list, descend into the inner structure and append the
+            // redirections to the last extracted command.
+            let innerNode: Node | null = null;
+            const redirects: string[] = [];
+
+            for (const child of node.children) {
+                if (
+                    child.type === "file_redirect"
+                    || child.type === "heredoc_redirect"
+                    || child.type === "herestring_redirect"
+                ) {
+                    redirects.push(child.text);
+                }
+                else if (isCommandNode(child)) {
+                    innerNode = child;
+                }
+            }
+
+            if (innerNode && isCommandLeaf(innerNode.type)) {
+                commands.push({
+                    argString: normalizeCommandText(node.text),
+                    args: extractArgs(innerNode),
+                    isComplex: isComplexCommand(node),
+                });
+            }
+            else if (innerNode && isContainerNode(innerNode.type)) {
+                const innerCommands = extractTopLevelCommands(innerNode);
+
+                if (innerCommands.length > 0 && redirects.length > 0) {
+                    const lastCommand = innerCommands[innerCommands.length - 1]!;
+                    const redirectText = " " + redirects.map(r => normalizeCommandText(r)).join(" ");
+                    lastCommand.argString = normalizeCommandText(lastCommand.argString + redirectText);
+                }
+
+                commands.push(...innerCommands);
+            }
             break;
         }
 
@@ -224,15 +357,16 @@ function extractTopLevelCommands(node: Node): ExtractedCommand[] {
         case "if_statement":
         case "case_statement":
         case "select_statement": {
-            commands.push({ argString: normalizeCommandText(node.text), isComplex: true });
+            commands.push({
+                argString: normalizeCommandText(node.text),
+                args: extractArgs(node),
+                isComplex: true,
+            });
             break;
         }
 
-        default: {
-            for (const child of node.children) {
-                commands.push(...extractTopLevelCommands(child));
-            }
-        }
+        // Unknown/unhandled node types are ignored. We rely on tree-sitter's
+        // structure to find the command-bearing nodes.
     }
 
     return commands;
@@ -278,13 +412,13 @@ export function parseBashCommand(input: string): ParseResult {
         if (isComplex) {
             return {
                 kind: "complex",
-                commands: commands.map(cmd => ({ argString: cmd.argString })),
+                commands: commands.map(cmd => ({ argString: cmd.argString, args: cmd.args })),
             };
         }
 
         return {
             kind: "commands",
-            commands: commands.map(cmd => ({ argString: cmd.argString })),
+            commands: commands.map(cmd => ({ argString: cmd.argString, args: cmd.args })),
         };
     }
     catch (error) {

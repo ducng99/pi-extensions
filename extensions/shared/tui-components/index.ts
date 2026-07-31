@@ -11,7 +11,7 @@ export interface PermissionResult {
 }
 
 /** Input without the "> " prompt */
-class InlineInput extends Input {
+export class InlineInput extends Input {
     render(width: number): string[] {
         const lines = super.render(width);
         // Strip the hardcoded "> " prompt (first 2 chars)

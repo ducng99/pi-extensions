@@ -408,6 +408,23 @@ describe("checkPermission: bash `cd` auto-allow", () => {
         // `cd` alone with no arg doesn't match isCdInBounds, so it asks
         expect(result).toBe("ask");
     });
+
+    test("`cd` updates effective cwd for subsequent relative paths", () => {
+        const perms = makePerms({
+            allow: [{ category: "bash", pattern: "bun build *" }],
+        });
+        perms.additionalDirectories = ["/tmp"];
+        const result = checkPermission(
+            "bash",
+            {
+                command:
+                    "cd /home/user/project && bun build --target=bun extensions/ask-user-questions/index.ts --outdir=/tmp/test-build 2>&1",
+            },
+            perms,
+            cwd,
+        );
+        expect(result).toBe("allow");
+    });
 });
 
 describe("checkPermission: complex and error commands", () => {

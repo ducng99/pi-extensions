@@ -261,16 +261,20 @@ function checkBashPermission(
         }
     }
 
-    // 3. Out-of-bounds check
-    if (cwd && isOutOfBounds("bash", input, cwd, merged.additionalDirectories ?? [])) {
-        return "ask";
-    }
-
-    // 4. Allow / cd auto-allow
-    let resolvedCount = 0;
+    // 3. Out-of-bounds check + 4. Allow / cd auto-allow
+    // Process commands in order so that `cd` changes the effective cwd for
+    // subsequent relative paths.
+    let effectiveCwd = cwd;
     for (const leafCmd of commands) {
-        let resolved = false;
+        const additionalDirs = merged.additionalDirectories ?? [];
 
+        // 3. Out-of-bounds check for this command using the effective cwd.
+        if (effectiveCwd && isCommandOutOfBounds(leafCmd.args, leafCmd.argString, effectiveCwd, additionalDirs)) {
+            return "ask";
+        }
+
+        // 4a. Allow rule match.
+        let resolved = false;
         for (const rule of merged.allow) {
             if (rule.category === category && matchPattern(rule.pattern, leafCmd.argString)) {
                 resolved = true;
@@ -278,18 +282,21 @@ function checkBashPermission(
             }
         }
 
-        if (!resolved && cwd && isCdInBounds(leafCmd.argString, cwd, merged.additionalDirectories ?? [])) {
-            resolved = true;
+        // 4b. `cd` auto-allow, and update the effective cwd for later commands.
+        if (effectiveCwd) {
+            const cdTarget = getCdTarget(leafCmd.args, effectiveCwd, additionalDirs);
+            if (cdTarget) {
+                resolved = true;
+                effectiveCwd = cdTarget;
+            }
         }
 
         if (!resolved) {
             return "ask";
         }
-
-        resolvedCount++;
     }
 
-    return resolvedCount > 0 ? "allow" : "ask";
+    return "allow";
 }
 
 // ============================================================================
@@ -297,89 +304,49 @@ function checkBashPermission(
 // ============================================================================
 
 /**
- * Check if a leaf command is `cd <path>` where <path> resolves to within
- * cwd or one of the additional directories.
+ * Extract and validate the target directory of a `cd <path>` command.
+ * Returns the resolved path if the cd is in-bounds, otherwise null.
  */
-function isCdInBounds(argString: string, cwd: string, additionalDirs: string[]): boolean {
-    const tokens = tokenizeArgString(argString);
-    if (tokens.length < 1 || tokens[0] !== "cd") return false;
+function getCdTarget(args: string[], cwd: string, additionalDirs: string[]): string | null {
+    if (args.length < 1 || args[0] !== "cd") return null;
 
     let targetPath = "";
-    for (let i = 1; i < tokens.length; i++) {
-        if (!tokens[i]!.startsWith("-")) {
-            targetPath = tokens[i]!;
+    for (let i = 1; i < args.length; i++) {
+        const arg = args[i]!;
+        if (arg === "--") continue;
+        if (!arg.startsWith("-")) {
+            targetPath = arg;
             break;
         }
     }
-    if (!targetPath) return false;
+    if (!targetPath) return null;
 
-    return !isOutOfBoundsPath(targetPath, cwd, additionalDirs);
+    if (isOutOfBoundsPath(targetPath, cwd, additionalDirs)) return null;
+    return resolveArgPath(targetPath, cwd);
+}
+
+/**
+ * Check if any path in a single command is outside the effective cwd and
+ * additional directories.
+ */
+function isCommandOutOfBounds(
+    args: string[],
+    argString: string,
+    cwd: string,
+    additionalDirs: string[],
+): boolean {
+    for (const path of extractPathArgs(args)) {
+        if (isOutOfBoundsPath(path, cwd, additionalDirs)) return true;
+    }
+    for (const path of extractRedirectionPaths(argString)) {
+        if (isOutOfBoundsPath(path, cwd, additionalDirs)) return true;
+    }
+    return false;
 }
 
 // ============================================================================
 // Bash Command Path Extraction
 // ============================================================================
-
-/**
- * Tokenize an argument string into individual tokens, respecting quotes.
- */
-function tokenizeArgString(argString: string): string[] {
-    const tokens: string[] = [];
-    let current = "";
-    let i = 0;
-    let inSingleQuote = false;
-    let inDoubleQuote = false;
-
-    while (i < argString.length) {
-        const ch = argString[i];
-
-        if (inSingleQuote) {
-            if (ch === "'") {
-                inSingleQuote = false;
-            }
-            else {
-                current += ch;
-            }
-        }
-        else if (inDoubleQuote) {
-            if (ch === "\\" && i + 1 < argString.length) {
-                current += argString[i + 1];
-                i += 2;
-                continue;
-            }
-            else if (ch === "\"") {
-                inDoubleQuote = false;
-            }
-            else {
-                current += ch;
-            }
-        }
-        else {
-            if (ch === " " || ch === "\t") {
-                if (current) {
-                    tokens.push(current);
-                    current = "";
-                }
-            }
-            else if (ch === "'") {
-                inSingleQuote = true;
-            }
-            else if (ch === "\"") {
-                inDoubleQuote = true;
-            }
-            else {
-                current += ch;
-            }
-        }
-        i++;
-    }
-
-    if (current) {
-        tokens.push(current);
-    }
-
-    return tokens;
-}
 
 /**
  * Check if a token looks like a file path.
@@ -395,27 +362,40 @@ function looksLikePath(token: string): boolean {
 }
 
 /**
+ * Strip matching outer quotes from a token.
+ */
+function stripQuotes(token: string): string {
+    if (token.length >= 2 && token.startsWith('"') && token.endsWith('"')) {
+        return token.slice(1, -1);
+    }
+    if (token.length >= 2 && token.startsWith("'") && token.endsWith("'")) {
+        return token.slice(1, -1);
+    }
+    return token;
+}
+
+/**
  * Extract a path value from a token, handling `--key=/path` style arguments.
  */
 function extractPathValue(token: string): string | null {
-    if (token.startsWith("--") && token.includes("=")) {
-        const value = token.slice(token.indexOf("=") + 1);
+    const unquoted = stripQuotes(token);
+    if (unquoted.startsWith("--") && unquoted.includes("=")) {
+        const value = unquoted.slice(unquoted.indexOf("=") + 1);
         if (looksLikePath(value)) return value;
     }
-    if (looksLikePath(token)) return token;
+    if (looksLikePath(unquoted)) return unquoted;
     return null;
 }
 
 /**
- * Extract file-path arguments from a single command's argString.
+ * Extract file-path arguments from a single command's args.
  */
-function extractPathArgs(argString: string): string[] {
-    const tokens = tokenizeArgString(argString);
-    if (tokens.length === 0) return [];
+function extractPathArgs(args: string[]): string[] {
+    if (args.length === 0) return [];
 
     const paths: string[] = [];
-    for (let i = 1; i < tokens.length; i++) {
-        const token = tokens[i]!;
+    for (let i = 1; i < args.length; i++) {
+        const token = args[i]!;
         const path = extractPathValue(token);
         if (path) {
             paths.push(path);
@@ -460,9 +440,9 @@ function extractPathsFromBashCommand(command: string): string[] {
     const parseResult = parseBashCommand(command);
     const paths: string[] = [];
 
-    if (parseResult.kind !== "complex") {
+    if (parseResult.kind !== "error") {
         for (const leafCmd of parseResult.commands) {
-            paths.push(...extractPathArgs(leafCmd.argString));
+            paths.push(...extractPathArgs(leafCmd.args));
         }
     }
 

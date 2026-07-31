@@ -29,4 +29,11 @@ export default defineConfig([
         semi: true,
         jsx: true,
     }),
+    {
+        rules: {
+            "@stylistic/quotes": ["error", "double", {
+                avoidEscape: true,
+            }],
+        },
+    },
 ]);
