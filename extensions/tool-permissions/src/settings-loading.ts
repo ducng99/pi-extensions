@@ -41,7 +41,28 @@ function loadJsonFile(path: string): LoadedSettings | null {
     }
 }
 
+function loadSubagentPermissionsFile(): LoadedSettings | null {
+    const envPath = process.env["PI_SUBAGENT_PERMISSIONS_FILE"];
+    if (!envPath) return null;
+    if (!existsSync(envPath)) return null;
+    try {
+        const content = stripJsoncComments(readFileSync(envPath, "utf-8"));
+        // Subagent extensions generate a Claude-style settings.json file. If the
+        // file contains opencode-style keys and no Claude-style keys, fall back
+        // to the opencode parser.
+        const permissions = content.includes('"permission"') && !content.includes('"permissions"')
+            ? parseOpencodePerms(content)
+            : parseClaudePerms(content);
+        return { permissions, source: envPath };
+    }
+    catch {
+        return null;
+    }
+}
+
 export function collectAllSettings(cwd: string): ParsedPermissions[] {
+    const all: ParsedPermissions[] = [];
+
     // Load all claude settings
     const globalClaude = loadJsonFile(globalClaudeSettingsPath());
     const projectClaude = projectClaudeSettingsPath(cwd);
@@ -49,7 +70,6 @@ export function collectAllSettings(cwd: string): ParsedPermissions[] {
 
     // If ANY claude settings exist, use ONLY claude settings (ignore opencode)
     if (globalClaude || projectClaude || projectClaudeLocal) {
-        const all: ParsedPermissions[] = [];
         if (globalClaude) all.push(globalClaude.permissions);
         if (projectClaude) {
             const loaded = loadJsonFile(projectClaude);
@@ -59,19 +79,23 @@ export function collectAllSettings(cwd: string): ParsedPermissions[] {
             const loaded = loadJsonFile(projectClaudeLocal);
             if (loaded) all.push(loaded.permissions);
         }
-        return all;
+    }
+    else {
+        // No claude settings — fall back to opencode settings
+        const globalOpencode = loadJsoncFile(globalOpencodePath());
+        if (globalOpencode) all.push(globalOpencode.permissions);
+
+        const projectOpencode = projectOpencodePath(cwd);
+        if (projectOpencode) {
+            const loaded = loadJsoncFile(projectOpencode);
+            if (loaded) all.push(loaded.permissions);
+        }
     }
 
-    // No claude settings — fall back to opencode settings
-    const all: ParsedPermissions[] = [];
-    const globalOpencode = loadJsoncFile(globalOpencodePath());
-    if (globalOpencode) all.push(globalOpencode.permissions);
-
-    const projectOpencode = projectOpencodePath(cwd);
-    if (projectOpencode) {
-        const loaded = loadJsoncFile(projectOpencode);
-        if (loaded) all.push(loaded.permissions);
-    }
+    // Subagent permissions file (if set) is merged last so it takes highest
+    // precedence while still respecting deny > ask > allow within the merged set.
+    const subagent = loadSubagentPermissionsFile();
+    if (subagent) all.push(subagent.permissions);
 
     return all;
 }

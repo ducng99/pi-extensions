@@ -4,7 +4,7 @@ import { normalize, resolve } from "path";
 import { parseBashCommand } from "../../shared/bash-parser/index";
 import { matchPattern } from "../../shared/pattern-matching/index";
 import type { ParsedPermissions } from "./permission-parsing";
-import { TOOL_CATEGORY } from "./tool-categories";
+import { DEFAULT_ALLOWED_TOOLS, TOOL_CATEGORY } from "./tool-categories";
 
 // ============================================================================
 // Path utilities
@@ -197,7 +197,12 @@ export function checkPermission(
         }
     }
 
-    // 4. Default: ask
+    // 4. Default allowed tools
+    if (DEFAULT_ALLOWED_TOOLS.has(toolName)) {
+        return "allow";
+    }
+
+    // 5. Default: ask
     return "ask";
 }
 

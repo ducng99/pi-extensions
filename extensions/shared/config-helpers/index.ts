@@ -6,8 +6,12 @@ import { join } from "path";
 // Config File Paths
 // ============================================================================
 
+function getHomeDir(): string {
+    return process.env.HOME ?? process.env.USERPROFILE ?? homedir();
+}
+
 export function globalOpencodePath(): string {
-    return join(homedir(), ".config", "opencode", "opencode.jsonc");
+    return join(getHomeDir(), ".config", "opencode", "opencode.jsonc");
 }
 
 export function projectOpencodePath(cwd: string): string | null {
@@ -19,7 +23,7 @@ export function projectOpencodePath(cwd: string): string | null {
 }
 
 export function globalClaudeSettingsPath(): string {
-    return join(homedir(), ".claude", "settings.json");
+    return join(getHomeDir(), ".claude", "settings.json");
 }
 
 export function projectClaudeSettingsPath(cwd: string): string | null {

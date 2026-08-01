@@ -21,7 +21,7 @@ function normalizePattern(pattern: string): string {
     return pattern;
 }
 
-function parseClaudePermissionString(entry: string): { tool: string | null; pattern: string } {
+export function parseClaudePermissionString(entry: string): { tool: string | null; pattern: string } {
     // Format: "ToolName(pattern)" or just "ToolName"
     const parenIdx = entry.indexOf("(");
     if (parenIdx === -1) {
@@ -42,6 +42,11 @@ function parseClaudePermissionString(entry: string): { tool: string | null; patt
         return { tool: "edit", pattern };
     }
 
+    // Glob maps to Pi's find tool (file search / globbing)
+    if (tool === "Glob") {
+        return { tool: "find", pattern };
+    }
+
     // Normalize to lowercase for case-insensitive matching
     return { tool: tool.toLowerCase(), pattern };
 }
@@ -58,9 +63,10 @@ export function parseOpencodePerms(content: string): ParsedPermissions {
 
     const perms = config?.permission;
     if (!perms || typeof perms !== "object") return result;
+    const typedPerms = perms as Record<string, unknown>;
 
     // Extract external_directory entries as additionalDirectories
-    const externalDir = perms.external_directory;
+    const externalDir = typedPerms.external_directory;
     if (typeof externalDir === "object" && externalDir !== null) {
         const dirs: string[] = [];
         for (const [pattern, decision] of Object.entries(externalDir as Record<string, unknown>)) {
@@ -80,7 +86,7 @@ export function parseOpencodePerms(content: string): ParsedPermissions {
         }
     }
 
-    for (const [toolKey, patterns] of Object.entries(perms)) {
+    for (const [toolKey, patterns] of Object.entries(typedPerms)) {
         // Skip external_directory as it's handled above
         if (toolKey === "external_directory") continue;
         if (typeof patterns !== "object" || patterns === null) continue;
@@ -108,9 +114,10 @@ export function parseClaudePerms(content: string): ParsedPermissions {
 
     const perms = config?.permissions;
     if (!perms || typeof perms !== "object") return result;
+    const typedPerms = perms as Record<string, unknown>;
 
     // Extract additionalDirectories (inside permissions object)
-    const additionalDirs = perms.additionalDirectories;
+    const additionalDirs = typedPerms.additionalDirectories;
     if (Array.isArray(additionalDirs)) {
         result.additionalDirectories = additionalDirs
             .map((d: unknown) => typeof d === "string" ? d : null)

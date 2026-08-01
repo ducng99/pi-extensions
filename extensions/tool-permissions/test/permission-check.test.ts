@@ -141,6 +141,38 @@ describe("checkPermission: non-bash tools unchanged", () => {
     });
 });
 
+describe("checkPermission: default allowed tools", () => {
+    test("allows ask_user_questions by default with no rules", () => {
+        const perms = makePerms({});
+        const result = checkPermission("ask_user_questions", {}, perms);
+        expect(result).toBe("allow");
+    });
+
+    test("allows subagent by default with no rules", () => {
+        const perms = makePerms({});
+        const result = checkPermission("subagent", {}, perms);
+        expect(result).toBe("allow");
+    });
+
+    test("explicit deny still overrides default allowed", () => {
+        const perms = makePerms({ deny: [{ category: "ask_user_questions", pattern: "*" }] });
+        const result = checkPermission("ask_user_questions", {}, perms);
+        expect(result).toBe("deny");
+    });
+
+    test("explicit ask still overrides default allowed", () => {
+        const perms = makePerms({ ask: [{ category: "ask_user_questions", pattern: "*" }] });
+        const result = checkPermission("ask_user_questions", {}, perms);
+        expect(result).toBe("ask");
+    });
+
+    test("unknown tool still defaults to ask", () => {
+        const perms = makePerms({});
+        const result = checkPermission("unknown_tool", {}, perms);
+        expect(result).toBe("ask");
+    });
+});
+
 describe("checkPermission: bash redirection patterns", () => {
     test("allow `bun test *` permits `bun test 2>&1`", () => {
         const perms = makePerms({ allow: [{ category: "bash", pattern: "bun test *" }] });
