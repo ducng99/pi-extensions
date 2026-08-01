@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "fs";
 
 import {
     globalClaudeSettingsPath,
@@ -6,8 +6,9 @@ import {
     projectClaudeLocalSettingsPath,
     projectClaudeSettingsPath,
     projectOpencodePath,
-} from "../../shared/config-helpers/index.js";
-import { parseClaudePerms, type ParsedPermissions, parseOpencodePerms } from "./permission-parsing.js";
+} from "../../shared/config-helpers/index";
+import { stripJsoncComments } from "../../shared/jsonc-utils/index";
+import { parseClaudePerms, type ParsedPermissions, parseOpencodePerms } from "./permission-parsing";
 
 // ============================================================================
 // Settings Loading & Merging

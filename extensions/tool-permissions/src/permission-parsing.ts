@@ -1,4 +1,4 @@
-import { stripJsoncComments } from "../../shared/jsonc-utils/index.js";
+import { stripJsoncComments } from "../../shared/jsonc-utils/index";
 
 // ============================================================================
 // Config Parsing

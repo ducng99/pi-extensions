@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 
-import { initParser, parseBashCommand } from "../bash-parser/index.js";
+import { initParser, parseBashCommand } from "../bash-parser/index";
 
 /**
  * Helper: extract just the arg strings from parsed results.

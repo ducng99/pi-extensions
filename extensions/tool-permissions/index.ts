@@ -17,12 +17,12 @@
 
 import type { ExtensionAPI, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 
-import { initParser } from "../shared/bash-parser/index.js";
-import { type PermissionResult, PermissionSelector } from "../shared/tui-components/index.js";
-import { formatConfirmMessage } from "./src/confirmation-message.js";
-import { checkPermission } from "./src/permission-check.js";
-import { collectAllSettings, mergePermissions } from "./src/settings-loading.js";
-import { TOOL_CATEGORY } from "./src/tool-categories.js";
+import { initParser } from "../shared/bash-parser/index";
+import { type PermissionResult, PermissionSelector } from "../shared/tui-components/index";
+import { formatConfirmMessage } from "./src/confirmation-message";
+import { checkPermission } from "./src/permission-check";
+import { collectAllSettings, mergePermissions } from "./src/settings-loading";
+import { TOOL_CATEGORY } from "./src/tool-categories";
 
 // ============================================================================
 // Parser Initialization

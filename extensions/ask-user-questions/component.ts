@@ -13,8 +13,8 @@ import {
     wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
-import { InlineInput } from "../shared/tui-components/index.js";
-import type { AskQuestionsResult, Question, QuestionResult } from "./types.js";
+import { InlineInput } from "../shared/tui-components/index";
+import type { AskQuestionsResult, Question, QuestionResult } from "./types";
 
 // ============================================================================
 // Helpers

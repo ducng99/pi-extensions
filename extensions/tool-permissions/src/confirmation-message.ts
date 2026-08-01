@@ -1,5 +1,5 @@
-import { isOutOfBounds } from "./permission-check.js";
-import type { ParsedPermissions } from "./permission-parsing.js";
+import { isOutOfBounds } from "./permission-check";
+import type { ParsedPermissions } from "./permission-parsing";
 
 // ============================================================================
 // Format confirmation message

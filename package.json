@@ -1,12 +1,6 @@
 {
   "name": "my-ext",
   "dependencies": {
-    "@eslint/js": "^10.0.1",
-    "@stylistic/eslint-plugin": "^5.10.0",
-    "eslint": "^10.8.0",
-    "eslint-plugin-simple-import-sort": "^14.0.0",
-    "globals": "^17.8.0",
-    "typescript-eslint": "^8.65.0",
     "web-tree-sitter": "^0.26.11"
   },
   "pi": {
@@ -23,5 +17,14 @@
     "@earendil-works/pi-tui": "*",
     "typebox": "*",
     "typescript": "^6"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@eslint/js": "^10.0.1",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "eslint": "^10.8.0",
+    "eslint-plugin-simple-import-sort": "^14.0.0",
+    "globals": "^17.8.0",
+    "typescript-eslint": "^8.65.0"
   }
 }

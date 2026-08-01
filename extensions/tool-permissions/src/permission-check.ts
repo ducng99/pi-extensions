@@ -1,10 +1,10 @@
-import { homedir } from "node:os";
-import { normalize, resolve } from "node:path";
+import { homedir } from "os";
+import { normalize, resolve } from "path";
 
-import { parseBashCommand } from "../../shared/bash-parser/index.js";
-import { matchPattern } from "../../shared/pattern-matching/index.js";
-import type { ParsedPermissions } from "./permission-parsing.js";
-import { TOOL_CATEGORY } from "./tool-categories.js";
+import { parseBashCommand } from "../../shared/bash-parser/index";
+import { matchPattern } from "../../shared/pattern-matching/index";
+import type { ParsedPermissions } from "./permission-parsing";
+import { TOOL_CATEGORY } from "./tool-categories";
 
 // ============================================================================
 // Path utilities

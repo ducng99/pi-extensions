@@ -9,10 +9,10 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { createQuestionsComponent } from "./component.js";
-import { renderCall, renderResult } from "./renderer.js";
-import { AskQuestionsParams } from "./schema.js";
-import type { AskQuestionsResult, Question } from "./types.js";
+import { createQuestionsComponent } from "./component";
+import { renderCall, renderResult } from "./renderer";
+import { AskQuestionsParams } from "./schema";
+import type { AskQuestionsResult, Question } from "./types";
 
 // ============================================================================
 // Error helper

@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 
-import { initParser } from "../../shared/bash-parser/index.js";
-import { checkPermission, isOutOfBounds } from "../src/permission-check.js";
-import { parseClaudePerms, parseOpencodePerms } from "../src/permission-parsing.js";
-import type { ParsedPermissions } from "../src/permission-parsing.js";
+import { initParser } from "../../shared/bash-parser/index";
+import { checkPermission, isOutOfBounds } from "../src/permission-check";
+import type { ParsedPermissions } from "../src/permission-parsing";
+import { parseClaudePerms, parseOpencodePerms } from "../src/permission-parsing";
 
 // Initialize parser before all tests
 beforeAll(async () => {

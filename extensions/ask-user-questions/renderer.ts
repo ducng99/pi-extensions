@@ -8,7 +8,7 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
-import type { AskQuestionsResult, Question } from "./types.js";
+import type { AskQuestionsResult, Question } from "./types";
 
 interface Theme {
     fg(color: string, text: string): string;
