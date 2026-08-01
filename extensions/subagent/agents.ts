@@ -14,7 +14,6 @@ import { homedir } from "os";
 import * as path from "path";
 
 import exploreAgent from "./defaultAgents/explore";
-import planAgent from "./defaultAgents/plan";
 import type { AgentConfig, AgentDiscoveryResult, AgentScope, DefaultAgentDefinition, PermissionConfig } from "./types";
 
 // ============================================================================
@@ -121,7 +120,6 @@ function loadDefaultAgent(definition: DefaultAgentDefinition, filePath: string):
 
 function loadDefaultAgents(): AgentConfig[] {
     return [
-        loadDefaultAgent(planAgent, "default:Plan"),
         loadDefaultAgent(exploreAgent, "default:Explore"),
     ];
 }

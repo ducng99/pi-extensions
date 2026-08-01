@@ -38,7 +38,7 @@ describe("discoverAgents", () => {
         writeAgent(claudeDir, "reviewer.md", "---\ndescription: Code reviewer\n---\nReview code.");
 
         const result = discoverAgents(tmpDir, "user");
-        expect(names(result.agents)).toEqual(["Explore", "Plan", "reviewer"]);
+        expect(names(result.agents)).toEqual(["Explore", "reviewer"]);
         expect(findAgent(result.agents, "reviewer")?.source).toBe("user");
     });
 
@@ -47,7 +47,7 @@ describe("discoverAgents", () => {
         writeAgent(opencodeDir, "worker.md", "---\nname: worker\nrole: Generic worker\n---\nDo work.");
 
         const result = discoverAgents(tmpDir, "user");
-        expect(names(result.agents)).toEqual(["Explore", "Plan", "worker"]);
+        expect(names(result.agents)).toEqual(["Explore", "worker"]);
         expect(findAgent(result.agents, "worker")?.source).toBe("user");
     });
 
@@ -58,7 +58,7 @@ describe("discoverAgents", () => {
         writeAgent(projectOpencodeDir, "worker.md", "---\nname: worker\nrole: Project worker\n---\nProject work.");
 
         const result = discoverAgents(path.join(tmpDir, "project"), "project");
-        expect(names(result.agents)).toEqual(["Explore", "Plan", "reviewer", "worker"]);
+        expect(names(result.agents)).toEqual(["Explore", "reviewer", "worker"]);
         const reviewer = findAgent(result.agents, "reviewer")!;
         expect(reviewer.source).toBe("project");
         expect(reviewer.systemPrompt).toContain("Project review.");
@@ -71,7 +71,7 @@ describe("discoverAgents", () => {
         const deepDir = path.join(tmpDir, "project", "src", "deep");
         fs.mkdirSync(deepDir, { recursive: true });
         const result = discoverAgents(deepDir, "project");
-        expect(names(result.agents)).toEqual(["Explore", "Plan", "reviewer"]);
+        expect(names(result.agents)).toEqual(["Explore", "reviewer"]);
     });
 
     test("project-local agents override user agents with same name", () => {
@@ -104,7 +104,7 @@ describe("discoverAgents", () => {
         writeAgent(projectDir, "project-agent.md", "---\ndescription: Project agent\n---\nProject.");
 
         const result = discoverAgents(path.join(tmpDir, "project"), "user");
-        expect(names(result.agents)).toEqual(["Explore", "Plan", "user-agent"]);
+        expect(names(result.agents)).toEqual(["Explore", "user-agent"]);
     });
 
     test("scope=project excludes user agents", () => {
@@ -114,7 +114,7 @@ describe("discoverAgents", () => {
         writeAgent(projectDir, "project-agent.md", "---\ndescription: Project agent\n---\nProject.");
 
         const result = discoverAgents(path.join(tmpDir, "project"), "project");
-        expect(names(result.agents)).toEqual(["Explore", "Plan", "project-agent"]);
+        expect(names(result.agents)).toEqual(["Explore", "project-agent"]);
     });
 
     test("parses claude frontmatter tools/disallowedTools", () => {
@@ -156,7 +156,7 @@ describe("discoverAgents", () => {
         writeAgent(opencodeDir, "fallback.md", "---\nrole: Fallback agent\n---\nFallback.");
 
         const result = discoverAgents(tmpDir, "user");
-        expect(names(result.agents)).toEqual(["Explore", "Plan", "fallback"]);
+        expect(names(result.agents)).toEqual(["Explore", "fallback"]);
     });
 
     test("ignores agent files without description or role", () => {
@@ -165,7 +165,7 @@ describe("discoverAgents", () => {
         writeAgent(claudeDir, "valid.md", "---\ndescription: Valid agent\n---\nValid.");
 
         const result = discoverAgents(tmpDir, "user");
-        expect(names(result.agents)).toEqual(["Explore", "Plan", "valid"]);
+        expect(names(result.agents)).toEqual(["Explore", "valid"]);
     });
 
     test("ignores non-md files and directories", () => {
@@ -176,22 +176,22 @@ describe("discoverAgents", () => {
         writeAgent(claudeDir, "valid.md", "---\ndescription: Valid agent\n---\nValid.");
 
         const result = discoverAgents(tmpDir, "user");
-        expect(names(result.agents)).toEqual(["Explore", "Plan", "valid"]);
+        expect(names(result.agents)).toEqual(["Explore", "valid"]);
     });
 
     test("returns built-in agents when no user agents exist", () => {
         const result = discoverAgents(tmpDir, "both");
-        expect(names(result.agents)).toEqual(["Explore", "Plan"]);
+        expect(names(result.agents)).toEqual(["Explore"]);
         expect(result.projectClaudeAgentsDir).toBeNull();
         expect(result.projectOpencodeAgentsDir).toBeNull();
     });
 
     test("user agents override built-in agents with the same name", () => {
         const claudeDir = path.join(tmpDir, ".claude", "agents");
-        writeAgent(claudeDir, "Plan.md", "---\ndescription: Custom plan agent\n---\nCustom plan.");
+        writeAgent(claudeDir, "Explore.md", "---\ndescription: Custom plan agent\n---\nCustom plan.");
 
         const result = discoverAgents(tmpDir, "user");
-        const plan = findAgent(result.agents, "Plan")!;
+        const plan = findAgent(result.agents, "Explore")!;
         expect(plan.source).toBe("user");
         expect(plan.systemPrompt).toContain("Custom plan.");
     });
