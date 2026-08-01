@@ -59,7 +59,30 @@ export function parseOpencodePerms(content: string): ParsedPermissions {
     const perms = config?.permission;
     if (!perms || typeof perms !== "object") return result;
 
+    // Extract external_directory entries as additionalDirectories
+    const externalDir = perms.external_directory;
+    if (typeof externalDir === "object" && externalDir !== null) {
+        const dirs: string[] = [];
+        for (const [pattern, decision] of Object.entries(externalDir as Record<string, unknown>)) {
+            if (String(decision).toLowerCase() !== "allow") continue;
+            // Extract base path from glob pattern (e.g., "~/projects/**" -> "~/projects")
+            let dir = pattern;
+            if (dir.endsWith("/**")) {
+                dir = dir.slice(0, -3);
+            }
+            else if (dir.endsWith("/*")) {
+                dir = dir.slice(0, -2);
+            }
+            dirs.push(dir);
+        }
+        if (dirs.length > 0) {
+            result.additionalDirectories = dirs;
+        }
+    }
+
     for (const [toolKey, patterns] of Object.entries(perms)) {
+        // Skip external_directory as it's handled above
+        if (toolKey === "external_directory") continue;
         if (typeof patterns !== "object" || patterns === null) continue;
         const category = toolKey;
 
@@ -83,16 +106,16 @@ export function parseClaudePerms(content: string): ParsedPermissions {
         return result;
     }
 
-    // Extract additionalDirectories
-    const additionalDirs = config?.additionalDirectories;
+    const perms = config?.permissions;
+    if (!perms || typeof perms !== "object") return result;
+
+    // Extract additionalDirectories (inside permissions object)
+    const additionalDirs = perms.additionalDirectories;
     if (Array.isArray(additionalDirs)) {
         result.additionalDirectories = additionalDirs
             .map((d: unknown) => typeof d === "string" ? d : null)
             .filter((d: string | null): d is string => d !== null);
     }
-
-    const perms = config?.permissions;
-    if (!perms || typeof perms !== "object") return result;
 
     for (const decision of ["allow", "ask", "deny"] as const) {
         if (!(decision in perms)) continue;
