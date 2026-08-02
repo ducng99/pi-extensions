@@ -15,6 +15,20 @@ import type { BackgroundTaskInfo, SingleResult, SubagentDetails } from "./types"
 import { getFinalOutput, getResultOutput, isFailedResult } from "./utils";
 
 export default function subagentExtension(pi: ExtensionAPI) {
+    pi.on("session_start", (_event, ctx) => {
+        const discovery = discoverAgents(ctx.cwd);
+        const agents = discovery.agents;
+        if (agents.length === 0) return;
+        const list = agents.map(a => `${a.name}: ${a.description}`).join("\n");
+        pi.sendMessage({
+            customType: "subagent-available-agents",
+            content: `Available subagents:\n${list}`,
+            display: false,
+        }, {
+            triggerTurn: false,
+        });
+    });
+
     pi.registerTool({
         name: "subagent",
         label: "Subagent",
@@ -42,7 +56,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
                 });
 
             if (!params.agent || !params.task) {
-                const available = agents.map(a => `${a.name} (${a.source})`).join(", ") || "none";
+                const available = agents.map(a => a.name).join(", ") || "none";
                 return {
                     content: [
                         {
