@@ -26,8 +26,9 @@ export default function subagentExtension(pi: ExtensionAPI) {
     const backgroundAgents = new Map<string, { agent: string; task: string; statusKey: string }>();
 
     function updateBackgroundWidget(ui: ExtensionUIContext) {
+        const WIDGET_KEY = "my-subagent-widget";
         if (backgroundAgents.size === 0) {
-            ui.setWidget("subagent-bg", undefined);
+            ui.setWidget(WIDGET_KEY, undefined);
             return;
         }
         const theme = ui.theme;
@@ -35,7 +36,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
             const truncated = truncateTaskForStatus(task, MAX_TASK_STATUS_LENGTH);
             return theme.fg("accent", "●") + " " + theme.fg("dim", agent) + " " + truncated;
         });
-        ui.setWidget("subagent-bg", lines);
+        ui.setWidget(WIDGET_KEY, lines, { placement: "belowEditor" });
     }
 
     pi.on("resources_discover", (_event, ctx) => {
@@ -123,10 +124,8 @@ export default function subagentExtension(pi: ExtensionAPI) {
                 const theme = ctx.ui.theme;
                 backgroundAgents.set(bg.backgroundId, { agent: bg.agent, task: bg.task, statusKey });
                 updateBackgroundWidget(ctx.ui);
-                ctx.ui.setStatus(statusKey, theme.fg("accent", "●") + theme.fg("dim", bg.agent));
                 bg.done.then(async ({ exitCode }) => {
                     const icon = exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
-                    ctx.ui.setStatus(statusKey, icon + theme.fg("dim", bg.agent));
                     backgroundAgents.delete(bg.backgroundId);
                     updateBackgroundWidget(ctx.ui);
                     setTimeout(() => ctx.ui.setStatus(statusKey, undefined), 10_000);
@@ -171,13 +170,16 @@ export default function subagentExtension(pi: ExtensionAPI) {
                             catch { /* ignore parse errors */ }
                         }
                         const status = exitCode === 0 ? "completed" : `failed (exit ${exitCode})`;
-                        let summary = resultText.slice(0, 200);
-                        if (!summary && errorText) summary = errorText.slice(0, 200);
-                        if (!summary) summary = "(no output)";
+                        let outputText = resultText;
+                        if (!outputText && errorText) outputText = errorText;
+                        if (!outputText) outputText = "(no output)";
                         pi.sendMessage({
                             customType: "subagent-bg-result",
-                            content: `${icon} ${bg.agent} ${status}: ${summary}`,
-                            display: true,
+                            content: `${icon} ${bg.agent} ${status}: ${outputText}`,
+                            display: false,
+                        }, {
+                            triggerTurn: true,
+                            deliverAs: "steer",
                         });
                     }
                     catch {
@@ -185,7 +187,10 @@ export default function subagentExtension(pi: ExtensionAPI) {
                         pi.sendMessage({
                             customType: "subagent-bg-result",
                             content: `${icon} ${bg.agent} ${status}`,
-                            display: true,
+                            display: false,
+                        }, {
+                            triggerTurn: true,
+                            deliverAs: "steer",
                         });
                     }
                 });
