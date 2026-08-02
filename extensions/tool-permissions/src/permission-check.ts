@@ -4,7 +4,7 @@ import { normalize, resolve } from "path";
 import { parseBashCommand } from "../../shared/bash-parser/index";
 import { matchPattern } from "../../shared/pattern-matching/index";
 import type { ParsedPermissions } from "./permission-parsing";
-import { DEFAULT_ALLOWED_TOOLS, TOOL_CATEGORY } from "./tool-categories";
+import { DEFAULT_ALLOWED_BASH_COMMANDS, DEFAULT_ALLOWED_TOOLS, TOOL_CATEGORY } from "./tool-categories";
 
 // ============================================================================
 // Path utilities
@@ -294,6 +294,11 @@ function checkBashPermission(
                 resolved = true;
                 effectiveCwd = cdTarget;
             }
+        }
+
+        // 4c. Default allowed bash commands (safe, cannot read file contents).
+        if (!resolved && leafCmd.args.length > 0 && DEFAULT_ALLOWED_BASH_COMMANDS.has(leafCmd.args[0]!)) {
+            resolved = true;
         }
 
         if (!resolved) {
