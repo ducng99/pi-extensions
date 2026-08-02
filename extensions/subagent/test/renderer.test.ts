@@ -13,7 +13,7 @@ function mockTheme() {
 
 function mockBackgroundResult(tasks: BackgroundTaskInfo[]) {
     return {
-        content: [{ type: "text", text: "Started background agents" }],
+        content: [{ type: "text" as const, text: "Started background agents" }],
         details: {
             mode: "background",
             projectClaudeAgentsDir: null,

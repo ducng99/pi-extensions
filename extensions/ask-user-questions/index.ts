@@ -7,7 +7,7 @@
  * Final tab is a review/submit summary.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { createQuestionsComponent } from "./component";
 import { renderCall, renderResult } from "./renderer";
@@ -36,10 +36,8 @@ export default function askUserQuestions(pi: ExtensionAPI) {
     pi.registerTool({
         name: "ask_user_questions",
         label: "Ask User",
-        description:
-      "Ask the user up to 5 clarifying questions. Each question has pre-generated answer options shown as checkboxes (multi-select) or radio buttons (single-select)",
-        promptSnippet:
-      "Ask the user 1-5 multiple-choice or single-choice questions with pre-generated answers",
+        description: "Ask the user up to 5 clarifying questions. Each question has pre-generated answer options shown as checkboxes (multi-select) or radio buttons (single-select)",
+        promptSnippet: "Ask the user 1-5 multiple-choice or single-choice questions with pre-generated answers",
         promptGuidelines: [
             "Use ask_user_questions when you need to clarify requirements, confirm decisions, or get user preferences before proceeding.",
         ],
@@ -88,6 +86,6 @@ export default function askUserQuestions(pi: ExtensionAPI) {
         },
 
         renderCall: (args, theme) => renderCall(args, theme),
-        renderResult: (result, _options, theme) => renderResult(result, theme),
+        renderResult: (result, _options, theme) => renderResult(result as AgentToolResult<AskQuestionsResult>, theme),
     });
 }

@@ -12,11 +12,11 @@ export interface PermissionResult {
 
 /** Input without the "> " prompt */
 export class InlineInput extends Input {
-    render(width: number): string[] {
+    override render(width: number): string[] {
         const lines = super.render(width);
         // Strip the hardcoded "> " prompt (first 2 chars)
-        if (lines.length > 0 && lines[0].startsWith("> ")) {
-            lines[0] = lines[0].slice(2);
+        if (lines.length > 0 && lines[0]!.startsWith("> ")) {
+            lines[0] = lines[0]!.slice(2);
         }
         return lines;
     }
@@ -57,7 +57,7 @@ class NoInputInline extends Container {
         this.input.handleInput(data);
     }
 
-    render(width: number): string[] {
+    override render(width: number): string[] {
         const lines = this.input.render(width - this.prefix.length);
         if (lines.length > 0) {
             lines[0] = truncateToWidth(this.prefix + lines[0], width);

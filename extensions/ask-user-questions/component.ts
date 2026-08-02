@@ -88,7 +88,7 @@ export function createQuestionsComponent(
     }
 
     function allAnswered(): boolean {
-        return questions.every((_, i) => selections[i].size > 0 || customTexts.has(i));
+        return questions.every((_, i) => selections[i]!.size > 0 || customTexts.has(i));
     }
 
     function enterInputMode(tabIndex: number) {
@@ -102,7 +102,7 @@ export function createQuestionsComponent(
 
     function buildResult(cancelled: boolean): AskQuestionsResult {
         const answers: QuestionResult[] = questions.map((q, i) => {
-            const sel = Array.from(selections[i]).sort((a, b) => a - b);
+            const sel = Array.from(selections[i]!).sort((a, b) => a - b);
             const hasCustom = customTexts.has(i);
             return {
                 questionIndex: i,
@@ -123,7 +123,7 @@ export function createQuestionsComponent(
 
         for (let i = 0; i < questions.length; i++) {
             const isActive = i === currentTab;
-            const isAnswered = selections[i].size > 0;
+            const isAnswered = selections[i]!.size > 0;
             const hdr = questions[i]!.header;
             const indicator = isAnswered ? "●" : "○";
             const color = isAnswered ? "success" : "muted";
@@ -185,7 +185,7 @@ export function createQuestionsComponent(
         }
         else {
             const missing = questions
-                .filter((_, i) => selections[i].size === 0)
+                .filter((_, i) => selections[i]!.size === 0)
                 .map(q => q.header)
                 .join(", ");
             addWrappedWithPrefix(lines, " ", theme.fg("warning", `Unanswered: ${missing}`), w);
@@ -320,7 +320,7 @@ export function createQuestionsComponent(
                 if (value.length > 0) {
                     // Confirm custom text
                     customTexts.set(currentTab, value);
-                    selections[currentTab].delete(OTHER_INDEX);
+                    selections[currentTab]!.delete(OTHER_INDEX);
                 }
                 inputMode = false;
                 otherInput = null;

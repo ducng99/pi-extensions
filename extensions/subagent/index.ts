@@ -82,6 +82,15 @@ export default function subagentExtension(pi: ExtensionAPI) {
                         isError: true,
                     };
                 }
+                const statusKey = `subagent-bg-${bg.backgroundId}`;
+                const theme = ctx.ui.theme;
+                ctx.ui.setStatus(statusKey, theme.fg("accent", "●") + " " + theme.fg("dim", `${bg.agent} ${bg.task.slice(0, 40)}`));
+                bg.done.then(({ exitCode }) => {
+                    const icon = exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
+                    const label = exitCode === 0 ? "done" : "failed";
+                    ctx.ui.setStatus(statusKey, icon + " " + theme.fg("dim", `${bg.agent} ${label}`));
+                    setTimeout(() => ctx.ui.setStatus(statusKey, undefined), 10_000);
+                });
                 return {
                     content: [
                         {

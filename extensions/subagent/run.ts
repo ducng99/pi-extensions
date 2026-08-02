@@ -348,13 +348,17 @@ function generateBackgroundId(): string {
     return crypto.randomBytes(12).toString("hex");
 }
 
+export interface BackgroundTaskHandle extends BackgroundTaskInfo {
+    done: Promise<{ exitCode: number }>;
+}
+
 export async function runAgentInBackground(
     defaultCwd: string,
     agents: AgentConfig[],
     agentName: string,
     task: string,
     cwd: string | undefined,
-): Promise<BackgroundTaskInfo | { error: string }> {
+): Promise<BackgroundTaskHandle | { error: string }> {
     const agent = agents.find(a => a.name === agentName);
     if (!agent) {
         const available = agents.map(a => `"${a.name}"`).join(", ") || "none";
@@ -407,6 +411,11 @@ export async function runAgentInBackground(
             detached: true,
         });
 
+        let closeResolver: ((value: { exitCode: number }) => void) | null = null;
+        const done = new Promise<{ exitCode: number }>((resolve) => {
+            closeResolver = resolve;
+        });
+
         proc.on("error", () => {
             try {
                 fs.closeSync(outFd);
@@ -416,9 +425,10 @@ export async function runAgentInBackground(
             catch {
                 /* ignore */
             }
+            closeResolver?.({ exitCode: 1 });
         });
 
-        proc.on("close", () => {
+        proc.on("close", (code) => {
             try {
                 fs.closeSync(outFd);
                 fs.closeSync(errFd);
@@ -426,11 +436,12 @@ export async function runAgentInBackground(
             catch {
                 /* ignore */
             }
+            closeResolver?.({ exitCode: code ?? 0 });
         });
 
         proc.unref();
 
-        const info: BackgroundTaskInfo = {
+        const info: BackgroundTaskHandle = {
             backgroundId,
             pid: proc.pid ?? -1,
             agent: agentName,
@@ -438,6 +449,7 @@ export async function runAgentInBackground(
             outputPath,
             errorPath,
             startedAt: new Date().toISOString(),
+            done,
         };
         backgroundTaskRegistry.set(backgroundId, info);
         return info;

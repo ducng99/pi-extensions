@@ -102,6 +102,7 @@ describe("command separators", () => {
     test("trailing redirection does not prevent && split", () => {
         const result = parseBashCommand("cd /a && bun build --outdir=/tmp/build 2>&1");
         expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
         expect(result.commands).toEqual([
             { argString: "cd /a", args: ["cd", "/a"] },
             { argString: "bun build --outdir=/tmp/build 2>&1", args: ["bun", "build", "--outdir=/tmp/build"] },
@@ -117,6 +118,7 @@ describe("command substitutions", () => {
     test("$(...) is complex", () => {
         const result = parseBashCommand("echo $(cat .env)");
         expect(result.kind).toBe("complex");
+        if (result.kind !== "complex") return;
         expect(result.commands).toEqual([{ argString: "echo $(cat .env)", args: ["echo"] }]);
     });
 
@@ -139,6 +141,7 @@ describe("subshells", () => {
     test("(cmd) | grep is a complex top-level command", () => {
         const result = parseBashCommand("(cat .env) | grep key");
         expect(result.kind).toBe("complex");
+        if (result.kind !== "complex") return;
         expect(result.commands).toEqual([
             { argString: "(cat .env)", args: [] },
             { argString: "grep key", args: ["grep", "key"] },
@@ -159,6 +162,7 @@ describe("find -exec and xargs", () => {
     test("find -exec is a complex top-level command", () => {
         const result = parseBashCommand("find . -name '*.ts' -exec cat {} \\;");
         expect(result.kind).toBe("complex");
+        if (result.kind !== "complex") return;
         expect(result.commands).toEqual([
             { argString: "find . -name '*.ts' -exec cat {} \\;", args: ["find", ".", "-name", "'*.ts'", "-exec", "cat", "{}", "\\;"] },
         ]);
@@ -184,24 +188,28 @@ describe("redirections", () => {
     test("output redirection is kept", () => {
         const result = parseBashCommand("cat .env > output.txt");
         expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
         expect(result.commands).toEqual([{ argString: "cat .env > output.txt", args: ["cat", ".env"] }]);
     });
 
     test("input redirection is kept", () => {
         const result = parseBashCommand("cat < input.txt");
         expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
         expect(result.commands).toEqual([{ argString: "cat < input.txt", args: ["cat"] }]);
     });
 
     test("stderr redirection is kept", () => {
         const result = parseBashCommand("cat .env 2>/dev/null");
         expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
         expect(result.commands).toEqual([{ argString: "cat .env 2>/dev/null", args: ["cat", ".env"] }]);
     });
 
     test("append redirection is kept", () => {
         const result = parseBashCommand("cat .env >> output.txt");
         expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
         expect(result.commands).toEqual([{ argString: "cat .env >> output.txt", args: ["cat", ".env"] }]);
     });
 });
