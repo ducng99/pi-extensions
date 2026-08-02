@@ -5,7 +5,8 @@
  * giving it an isolated context window.
  */
 
-import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import fs from "fs";
 
 import { discoverAgents } from "./agents";
 import { renderCall, renderResult } from "./renderer";
@@ -14,8 +15,30 @@ import { SubagentParams } from "./schema";
 import type { BackgroundTaskInfo, SingleResult, SubagentDetails } from "./types";
 import { getFinalOutput, getResultOutput, isFailedResult } from "./utils";
 
+const MAX_TASK_STATUS_LENGTH = 100;
+
+function truncateTaskForStatus(task: string, maxLength: number): string {
+    if (task.length <= maxLength) return task;
+    return task.slice(0, maxLength - 3) + "...";
+}
+
 export default function subagentExtension(pi: ExtensionAPI) {
-    pi.on("session_start", (_event, ctx) => {
+    const backgroundAgents = new Map<string, { agent: string; task: string; statusKey: string }>();
+
+    function updateBackgroundWidget(ui: ExtensionUIContext) {
+        if (backgroundAgents.size === 0) {
+            ui.setWidget("subagent-bg", undefined);
+            return;
+        }
+        const theme = ui.theme;
+        const lines = Array.from(backgroundAgents.values()).map(({ agent, task }) => {
+            const truncated = truncateTaskForStatus(task, MAX_TASK_STATUS_LENGTH);
+            return theme.fg("accent", "●") + " " + theme.fg("dim", agent) + " " + truncated;
+        });
+        ui.setWidget("subagent-bg", lines);
+    }
+
+    pi.on("resources_discover", (_event, ctx) => {
         const discovery = discoverAgents(ctx.cwd);
         const agents = discovery.agents;
         if (agents.length === 0) return;
@@ -98,13 +121,77 @@ export default function subagentExtension(pi: ExtensionAPI) {
                 }
                 const statusKey = `subagent-bg-${bg.backgroundId}`;
                 const theme = ctx.ui.theme;
-                ctx.ui.setStatus(statusKey, theme.fg("accent", "●") + " " + theme.fg("dim", `${bg.agent} ${bg.task.slice(0, 40)}`));
-                bg.done.then(({ exitCode }) => {
+                backgroundAgents.set(bg.backgroundId, { agent: bg.agent, task: bg.task, statusKey });
+                updateBackgroundWidget(ctx.ui);
+                ctx.ui.setStatus(statusKey, theme.fg("accent", "●") + theme.fg("dim", bg.agent));
+                bg.done.then(async ({ exitCode }) => {
                     const icon = exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
-                    const label = exitCode === 0 ? "done" : "failed";
-                    ctx.ui.setStatus(statusKey, icon + " " + theme.fg("dim", `${bg.agent} ${label}`));
+                    ctx.ui.setStatus(statusKey, icon + theme.fg("dim", bg.agent));
+                    backgroundAgents.delete(bg.backgroundId);
+                    updateBackgroundWidget(ctx.ui);
                     setTimeout(() => ctx.ui.setStatus(statusKey, undefined), 10_000);
+
+                    // Read output and notify user (small delay to ensure file is flushed)
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    try {
+                        const output = await fs.promises.readFile(bg.outputPath, "utf-8");
+                        const lines = output.split("\n").filter(l => l.trim());
+                        let resultText = "";
+                        let errorText = "";
+                        for (const line of lines) {
+                            try {
+                                const event = JSON.parse(line);
+                                if (event.type === "agent_end" && Array.isArray(event.messages)) {
+                                    for (const msg of event.messages) {
+                                        // Get text from assistant messages
+                                        if (msg.role === "assistant" && Array.isArray(msg.content)) {
+                                            for (const part of msg.content) {
+                                                if (part.type === "text" && part.text) {
+                                                    resultText = part.text;
+                                                }
+                                            }
+                                        }
+                                        // Get error from toolResult messages - check both msg.isError and content isError
+                                        const isError = msg.isError === true || (Array.isArray(msg.content) && msg.content.some((p: { isError: boolean }) => p.isError === true));
+                                        if (msg.role === "toolResult" && Array.isArray(msg.content) && isError) {
+                                            for (const part of msg.content) {
+                                                if (part.type === "text" && part.text) {
+                                                    errorText = part.text;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // Check stopReason of last assistant message
+                                    const lastMsg = event.messages[event.messages.length - 1];
+                                    if (lastMsg?.role === "assistant" && lastMsg.stopReason && lastMsg.stopReason !== "endTurn") {
+                                        errorText = errorText || `Stop reason: ${lastMsg.stopReason}`;
+                                    }
+                                }
+                            }
+                            catch { /* ignore parse errors */ }
+                        }
+                        const status = exitCode === 0 ? "completed" : `failed (exit ${exitCode})`;
+                        let summary = resultText.slice(0, 200);
+                        if (!summary && errorText) summary = errorText.slice(0, 200);
+                        if (!summary) summary = "(no output)";
+                        pi.sendMessage({
+                            customType: "subagent-bg-result",
+                            content: `${icon} ${bg.agent} ${status}: ${summary}`,
+                            display: true,
+                        });
+                    }
+                    catch {
+                        const status = exitCode === 0 ? "completed" : `failed (exit ${exitCode})`;
+                        pi.sendMessage({
+                            customType: "subagent-bg-result",
+                            content: `${icon} ${bg.agent} ${status}`,
+                            display: true,
+                        });
+                    }
                 });
+                // Strip the 'done' Promise before including in details to avoid cloning errors
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const { done: _, ...bgInfo } = bg;
                 return {
                     content: [
                         {
@@ -112,7 +199,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
                             text: `Started agent ${bg.agent} in background (${bg.backgroundId}).\nOutput: ${bg.outputPath}\nErrors: ${bg.errorPath}`,
                         },
                     ],
-                    details: makeDetails("background")([], [bg]),
+                    details: makeDetails("background")([], [bgInfo]),
                 };
             }
 

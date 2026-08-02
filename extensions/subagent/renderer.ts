@@ -77,13 +77,12 @@ export function renderResult(
     if (details.mode === "single" && details.results.length === 1) {
         const r = details.results[0]!;
         const isError = isFailedResult(r);
-        const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
         const displayItems = getDisplayItems(r.messages);
         const finalOutput = getFinalOutput(r.messages);
 
         if (options.expanded) {
             const container = new Container();
-            let header = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
+            let header = "";
             if (isError && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
             container.addChild(new Text(header, 0, 0));
             if (isError && r.errorMessage) {
@@ -123,7 +122,7 @@ export function renderResult(
             return container;
         }
 
-        let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
+        let text = "";
         if (isError && r.stopReason) text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
         if (isError && r.errorMessage) text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
         else if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
