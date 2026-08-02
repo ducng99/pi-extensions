@@ -5,7 +5,7 @@
 import { type AgentToolResult, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 
-import type { AgentScope, DisplayItem, SubagentDetails } from "./types";
+import type { DisplayItem, SubagentDetails } from "./types";
 import { formatToolCall, formatUsageStats, getDisplayItems, getFinalOutput, isFailedResult } from "./utils";
 
 interface Theme {
@@ -41,14 +41,10 @@ export function renderCall(
     args: Record<string, unknown>,
     theme: Theme,
 ): Component {
-    const scope = ((args.agentScope as string) ?? "user") as AgentScope;
     const agentName = (args.agent as string) || "...";
     const task = (args.task as string) || "";
     const preview = task ? (task.length > 60 ? `${task.slice(0, 60)}...` : task) : "...";
-    let text
-        = theme.fg("toolTitle", theme.bold("subagent "))
-            + theme.fg("accent", agentName)
-            + theme.fg("muted", ` [${scope}]`);
+    let text = theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", agentName);
     if (args.runInBackground) text += theme.fg("warning", " (background)");
     text += `\n  ${theme.fg("dim", preview)}`;
     return new Text(text, 0, 0);

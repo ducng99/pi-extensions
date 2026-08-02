@@ -14,7 +14,7 @@ import { homedir } from "os";
 import * as path from "path";
 
 import exploreAgent from "./defaultAgents/explore";
-import type { AgentConfig, AgentDiscoveryResult, AgentScope, DefaultAgentDefinition, PermissionConfig } from "./types";
+import type { AgentConfig, AgentDiscoveryResult, DefaultAgentDefinition, PermissionConfig } from "./types";
 
 // ============================================================================
 // Constants
@@ -183,20 +183,14 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 // Discovery
 // ============================================================================
 
-export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryResult {
+export function discoverAgents(cwd: string): AgentDiscoveryResult {
     const projectClaudeAgentsDir = findNearestProjectDir(cwd, ".claude");
     const projectOpencodeAgentsDir = findNearestProjectDir(cwd, ".opencode");
 
-    const userClaudeAgents = scope === "project" ? [] : loadAgentsFromDir(userClaudeDir(), "user");
-    const userOpencodeAgents = scope === "project" ? [] : loadAgentsFromDir(userOpencodeDir(), "user");
-    const projectClaudeAgents
-        = scope === "user" || !projectClaudeAgentsDir
-            ? []
-            : loadAgentsFromDir(projectClaudeAgentsDir, "project");
-    const projectOpencodeAgents
-        = scope === "user" || !projectOpencodeAgentsDir
-            ? []
-            : loadAgentsFromDir(projectOpencodeAgentsDir, "project");
+    const userClaudeAgents = loadAgentsFromDir(userClaudeDir(), "user");
+    const userOpencodeAgents = loadAgentsFromDir(userOpencodeDir(), "user");
+    const projectClaudeAgents = !projectClaudeAgentsDir ? [] : loadAgentsFromDir(projectClaudeAgentsDir, "project");
+    const projectOpencodeAgents = !projectOpencodeAgentsDir ? [] : loadAgentsFromDir(projectOpencodeAgentsDir, "project");
 
     const agentMap = new Map<string, AgentConfig>();
 

@@ -13,10 +13,9 @@ function mockTheme() {
 
 function mockBackgroundResult(tasks: BackgroundTaskInfo[]) {
     return {
-        content: [{ type: "text" as const, text: "Started background agents" }],
+        content: [{ type: "text", text: "Started background agents" }],
         details: {
-            mode: "background" as const,
-            agentScope: "user" as const,
+            mode: "background",
             projectClaudeAgentsDir: null,
             projectOpencodeAgentsDir: null,
             results: [],

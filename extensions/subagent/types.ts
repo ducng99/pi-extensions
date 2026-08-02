@@ -64,7 +64,6 @@ export interface BackgroundTaskInfo {
 
 export interface SubagentDetails {
     mode: "single" | "background";
-    agentScope: AgentScope;
     projectClaudeAgentsDir: string | null;
     projectOpencodeAgentsDir: string | null;
     results: SingleResult[];
