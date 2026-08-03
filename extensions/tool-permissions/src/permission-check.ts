@@ -144,7 +144,6 @@ export function isOutOfBounds(
 ): boolean {
     if (!FILE_PATH_TOOLS.has(toolName)) return false;
 
-    // Non-bash: single file path.
     const filePath = extractFilePath(toolName, input);
     if (!filePath) return false;
     return isOutOfBoundsPath(filePath, cwd, additionalDirs);
@@ -154,12 +153,29 @@ export function isOutOfBounds(
 // Permission Check
 // ============================================================================
 
+/**
+ * The outcome of a permission check.
+ *
+ * `decision` is the action to take. When the decision is `"ask"`, an optional
+ * `reason` may explain *why* it is being asked (e.g. the bash command was too
+ * complex to analyze or failed to parse).
+ */
+export type PermissionDecision
+    = | { decision: "deny" }
+        | { decision: "allow" }
+        | { decision: "ask"; reason?: string };
+
+/** Reason shown when a bash command could not be parsed by tree-sitter. */
+export const REASON_BASH_PARSE_ERROR = "Unable to parse the command";
+/** Reason shown when a bash command uses complex structures we don't analyze. */
+export const REASON_BASH_COMPLEX = "Command uses complex structures";
+
 export function checkPermission(
     toolName: string,
     input: Record<string, unknown>,
     merged: ParsedPermissions,
     cwd?: string,
-): "deny" | "ask" | "allow" {
+): PermissionDecision {
     if (toolName === "bash") {
         return checkBashPermission(input, merged, cwd);
     }
@@ -170,14 +186,14 @@ export function checkPermission(
     // 1. Deny — highest priority
     for (const rule of merged.deny) {
         if (rule.category === category && matchPattern(rule.pattern, argString)) {
-            return "deny";
+            return { decision: "deny" };
         }
     }
 
     // 2. Ask
     for (const rule of merged.ask) {
         if (rule.category === category && matchPattern(rule.pattern, argString)) {
-            return "ask";
+            return { decision: "ask" };
         }
     }
 
@@ -185,19 +201,19 @@ export function checkPermission(
     for (const rule of merged.allow) {
         if (rule.category === category && matchPattern(rule.pattern, argString)) {
             if (cwd && isOutOfBounds(toolName, input, cwd, merged.additionalDirectories ?? [])) {
-                return "ask";
+                return { decision: "ask", reason: "⚠ Accessing outside allowed directories." };
             }
-            return "allow";
+            return { decision: "allow" };
         }
     }
 
     // 4. Default allowed tools
     if (DEFAULT_ALLOWED_TOOLS.has(toolName)) {
-        return "allow";
+        return { decision: "allow" };
     }
 
     // 5. Default: ask
-    return "ask";
+    return { decision: "ask" };
 }
 
 // ============================================================================
@@ -219,9 +235,9 @@ function checkBashPermission(
     input: Record<string, unknown>,
     merged: ParsedPermissions,
     cwd?: string,
-): "deny" | "ask" | "allow" {
+): PermissionDecision {
     const cmd = input.command;
-    if (typeof cmd !== "string") return "ask";
+    if (typeof cmd !== "string") return { decision: "ask" };
 
     const category = "bash";
 
@@ -229,33 +245,33 @@ function checkBashPermission(
     const parseResult = parseBashCommand(cmd);
 
     if (parseResult.kind === "error") {
-        return "ask";
+        return { decision: "ask", reason: REASON_BASH_PARSE_ERROR };
     }
 
     const commands = parseResult.commands;
     if (commands.length === 0) {
-        return "ask";
+        return { decision: "ask" };
     }
 
     // 1. Deny
     for (const leafCmd of commands) {
         for (const rule of merged.deny) {
             if (rule.category === category && matchPattern(rule.pattern, leafCmd.argString)) {
-                return "deny";
+                return { decision: "deny" };
             }
         }
     }
 
     // Complex commands only get deny-rule checking; everything else is "ask".
     if (parseResult.kind === "complex") {
-        return "ask";
+        return { decision: "ask", reason: REASON_BASH_COMPLEX };
     }
 
     // 2. Ask
     for (const leafCmd of commands) {
         for (const rule of merged.ask) {
             if (rule.category === category && matchPattern(rule.pattern, leafCmd.argString)) {
-                return "ask";
+                return { decision: "ask" };
             }
         }
     }
@@ -269,7 +285,7 @@ function checkBashPermission(
 
         // 3. Out-of-bounds check for this command using the effective cwd.
         if (effectiveCwd && isCommandOutOfBounds(leafCmd.args, leafCmd.argString, effectiveCwd, additionalDirs)) {
-            return "ask";
+            return { decision: "ask" };
         }
 
         // 4a. Allow rule match.
@@ -296,11 +312,11 @@ function checkBashPermission(
         }
 
         if (!resolved) {
-            return "ask";
+            return { decision: "ask" };
         }
     }
 
-    return "allow";
+    return { decision: "allow" };
 }
 
 // ============================================================================

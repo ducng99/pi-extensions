@@ -1,19 +1,7 @@
-import { isOutOfBounds } from "./permission-check";
-import type { ParsedPermissions } from "./permission-parsing";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 
-// ============================================================================
-// Format confirmation message
-// ============================================================================
-
-export function formatConfirmMessage(toolName: string, input: Record<string, unknown>, cwd: string, merged?: ParsedPermissions): string {
+export function formatConfirmMessage(theme: Theme, toolName: string, input: Record<string, unknown>, cwd: string, reason?: string): string {
     const lines: string[] = [];
-
-    // Check if the operation is out-of-bounds
-    const outOfBounds = merged ? isOutOfBounds(toolName, input, cwd, merged.additionalDirectories ?? []) : false;
-    if (outOfBounds) {
-        lines.push("⚠ File is outside the working directory and additional directories.");
-        lines.push("");
-    }
 
     switch (toolName) {
         case "edit":
@@ -77,6 +65,10 @@ export function formatConfirmMessage(toolName: string, input: Record<string, unk
         }
         default:
             lines.push(`Tool: ${toolName}`);
+    }
+
+    if (reason?.trim()) {
+        lines.push(theme.fg("muted", reason.trim()));
     }
 
     return lines.join("\n");

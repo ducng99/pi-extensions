@@ -70,18 +70,18 @@ export default function (pi: ExtensionAPI) {
 
         const decision = checkPermission(toolName, event.input as Record<string, unknown>, merged, ctx.cwd);
 
-        if (decision === "deny") {
+        if (decision.decision === "deny") {
             return {
                 block: true,
                 reason: `${toolName} is denied by your permission settings.`,
             };
         }
 
-        if (decision === "ask") {
-            const contextMsg = formatConfirmMessage(toolName, event.input as Record<string, unknown>, ctx.cwd, merged);
-            const title = `${contextMsg}\n\nAllow ${toolName}?`;
-
+        if (decision.decision === "ask") {
             const result = await ctx.ui.custom<PermissionResult>((tui, theme, keybindings, done) => {
+                const contextMsg = formatConfirmMessage(theme, toolName, event.input as Record<string, unknown>, ctx.cwd, decision.reason);
+                const title = `${contextMsg}\n\nAllow ${toolName}?`;
+
                 return new PermissionSelector(title, done);
             });
 
