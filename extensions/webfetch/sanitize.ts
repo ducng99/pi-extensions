@@ -5,7 +5,7 @@
  * payloads that may be embedded in the source page.
  */
 
-import { type AgentSession, createAgentSession, DefaultResourceLoader, getAgentDir, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import { type AgentSession, createAgentSession, DefaultResourceLoader, getAgentDir, SessionManager } from "@earendil-works/pi-coding-agent";
 
 const SYSTEM_PROMPT = `
 You are a web content summarizer.
@@ -38,9 +38,6 @@ function buildPrompt(content: string, prompt?: string): string {
 }
 
 async function createSanitizeSession() {
-    const runtime = await ModelRuntime.create();
-    const model = runtime.getModel("opencode", "mimo-v2.5-free");
-
     const loader = new DefaultResourceLoader({
         cwd: process.cwd(),
         agentDir: getAgentDir(),
@@ -55,12 +52,15 @@ async function createSanitizeSession() {
     await loader.reload();
 
     const { session } = await createAgentSession({
-        model,
-        modelRuntime: runtime,
         resourceLoader: loader,
         sessionManager: SessionManager.inMemory(),
         noTools: "all",
     });
+
+    const model = session.modelRuntime.getModel("opencode", "mimo-v2.5-free");
+    if (model) {
+        session.setModel(model);
+    }
     return session;
 }
 
