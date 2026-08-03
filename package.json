@@ -12,7 +12,8 @@
       "./extensions/subagent/index.ts",
       "./extensions/webfetch/index.ts",
       "./extensions/websearch/index.ts",
-      "./extensions/footer/index.ts"
+      "./extensions/footer/index.ts",
+      "./extensions/prompt-arrow/index.ts"
     ]
   },
   "module": "index.ts",
