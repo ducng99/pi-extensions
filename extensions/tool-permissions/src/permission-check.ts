@@ -101,6 +101,10 @@ function buildArgString(toolName: string, input: Record<string, unknown>): strin
             const path = input.path ?? "";
             return typeof path === "string" ? path : "";
         }
+        case "webfetch": {
+            const url = input.url;
+            return typeof url === "string" ? url : "";
+        }
         default:
             return "";
     }

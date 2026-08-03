@@ -55,6 +55,26 @@ export function formatConfirmMessage(toolName: string, input: Record<string, unk
             lines.push(`List: ${path}`);
             break;
         }
+        case "webfetch":
+        case "WebFetch": {
+            const url = input.url;
+            const prompt = input.prompt;
+            if (typeof url === "string") {
+                lines.push(`URL: ${url}`);
+            }
+            if (typeof prompt === "string") {
+                lines.push(`Prompt: ${prompt}`);
+            }
+            break;
+        }
+        case "websearch":
+        case "WebSearch": {
+            const query = input.query;
+            if (typeof query === "string") {
+                lines.push(`Query: ${query}`);
+            }
+            break;
+        }
         default:
             lines.push(`Tool: ${toolName}`);
     }

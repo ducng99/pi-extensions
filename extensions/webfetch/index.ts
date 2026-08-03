@@ -6,6 +6,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 
 import { extractBody, isHtmlContentType } from "./html";
 import { htmlToMarkdown } from "./markdown";
@@ -92,6 +93,16 @@ export default function webfetchTool(pi: ExtensionAPI) {
                 clearTimeout(timeoutId);
                 if (outerSignal) outerSignal.removeEventListener("abort", abortFromEither);
             }
+        },
+
+        renderCall(args, theme, _context) {
+            const parts = [theme.fg("toolTitle", theme.bold("webfetch "))];
+            parts.push(theme.fg("muted", args.url));
+            if (args.prompt) {
+                parts.push(" ");
+                parts.push(theme.fg("dim", `\"${args.prompt}\"`));
+            }
+            return new Text(parts.join(""), 0, 0);
         },
     });
 }

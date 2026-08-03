@@ -47,6 +47,14 @@ export function parseClaudePermissionString(entry: string): { tool: string | nul
         return { tool: "find", pattern };
     }
 
+    // Web tools mapping
+    if (tool === "WebFetch") {
+        return { tool: "webfetch", pattern };
+    }
+    if (tool === "WebSearch") {
+        return { tool: "websearch", pattern };
+    }
+
     // Normalize to lowercase for case-insensitive matching
     return { tool: tool.toLowerCase(), pattern };
 }

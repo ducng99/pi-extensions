@@ -5,6 +5,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 
 import type { WebSearchResponse } from "./ollama";
 import { ollamaWebSearch } from "./ollama";
@@ -73,6 +74,12 @@ IMPORTANT - Use the correct year in search queries:
                     isError: true,
                 };
             }
+        },
+
+        renderCall(args, theme, _context) {
+            const parts = [theme.fg("toolTitle", theme.bold("websearch "))];
+            parts.push(theme.fg("muted", args.query));
+            return new Text(parts.join(""), 0, 0);
         },
     });
 }
