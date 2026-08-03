@@ -76,7 +76,7 @@ IMPORTANT - Use the correct year in search queries:
             }
         },
 
-        renderCall(args, theme, _context) {
+        renderCall(args, theme) {
             const parts = [theme.fg("toolTitle", theme.bold("websearch "))];
             parts.push(theme.fg("muted", args.query));
             return new Text(parts.join(""), 0, 0);

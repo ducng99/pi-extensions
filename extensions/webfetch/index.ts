@@ -95,12 +95,12 @@ export default function webfetchTool(pi: ExtensionAPI) {
             }
         },
 
-        renderCall(args, theme, _context) {
+        renderCall(args, theme) {
             const parts = [theme.fg("toolTitle", theme.bold("webfetch "))];
             parts.push(theme.fg("muted", args.url));
             if (args.prompt) {
                 parts.push(" ");
-                parts.push(theme.fg("dim", `\"${args.prompt}\"`));
+                parts.push(theme.fg("dim", `"${args.prompt}"`));
             }
             return new Text(parts.join(""), 0, 0);
         },
