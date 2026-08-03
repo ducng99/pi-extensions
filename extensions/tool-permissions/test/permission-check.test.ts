@@ -489,33 +489,10 @@ describe("checkPermission: complex and error commands", () => {
 describe("isOutOfBounds: bash commands", () => {
     const cwd = "/home/user/project";
 
-    test("returns false for bash command with paths inside cwd", () => {
-        const result = isOutOfBounds("bash", { command: "cat src/main.ts" }, cwd, []);
-        expect(result).toBe(false);
-    });
-
-    test("returns true for bash command reading file outside cwd", () => {
+    // Bash bounds checking is handled in checkBashPermission with cd-aware
+    // effective cwd tracking. isOutOfBounds always returns false for bash.
+    test("returns false for bash command — bounds checked by checkBashPermission", () => {
         const result = isOutOfBounds("bash", { command: "cat /etc/passwd" }, cwd, []);
-        expect(result).toBe(true);
-    });
-
-    test("returns true for bash command writing to file outside cwd via redirection", () => {
-        const result = isOutOfBounds("bash", { command: "echo hello > /tmp/output.txt" }, cwd, []);
-        expect(result).toBe(true);
-    });
-
-    test("returns false for bash command with path in additional directory", () => {
-        const result = isOutOfBounds("bash", { command: "cat /home/user/shared/file.txt" }, cwd, ["/home/user/shared"]);
-        expect(result).toBe(false);
-    });
-
-    test("returns true for bash command with path outside cwd and additional dirs", () => {
-        const result = isOutOfBounds("bash", { command: "cat /home/user/other/file.txt" }, cwd, ["/home/user/shared"]);
-        expect(result).toBe(true);
-    });
-
-    test("returns false for bash command with no paths", () => {
-        const result = isOutOfBounds("bash", { command: "echo hello" }, cwd, []);
         expect(result).toBe(false);
     });
 

@@ -126,7 +126,7 @@ function extractFilePath(toolName: string, input: Record<string, unknown>): stri
 // ============================================================================
 
 /** Tools that operate on file paths */
-const FILE_PATH_TOOLS = new Set(["edit", "write", "read", "bash"]);
+const FILE_PATH_TOOLS = new Set(["edit", "write", "read"]);
 
 /**
  * Check if the tool is accessing a file outside cwd and all additional directories.
@@ -139,16 +139,6 @@ export function isOutOfBounds(
     additionalDirs: string[],
 ): boolean {
     if (!FILE_PATH_TOOLS.has(toolName)) return false;
-
-    // Bash: check all paths found in the command.
-    if (toolName === "bash") {
-        const cmd = input.command;
-        if (typeof cmd !== "string") return false;
-        for (const path of extractPathsFromBashCommand(cmd)) {
-            if (isOutOfBoundsPath(path, cwd, additionalDirs)) return true;
-        }
-        return false;
-    }
 
     // Non-bash: single file path.
     const filePath = extractFilePath(toolName, input);
@@ -438,25 +428,6 @@ function extractRedirectionPaths(command: string): string[] {
 
         paths.push(filePath);
     }
-
-    return paths;
-}
-
-/**
- * Extract all file paths from a bash command string.
- * Includes argument paths and redirection target paths.
- */
-function extractPathsFromBashCommand(command: string): string[] {
-    const parseResult = parseBashCommand(command);
-    const paths: string[] = [];
-
-    if (parseResult.kind !== "error") {
-        for (const leafCmd of parseResult.commands) {
-            paths.push(...extractPathArgs(leafCmd.args));
-        }
-    }
-
-    paths.push(...extractRedirectionPaths(command));
 
     return paths;
 }
