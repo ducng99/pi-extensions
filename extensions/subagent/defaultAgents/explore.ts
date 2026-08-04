@@ -1,4 +1,4 @@
-import type { DefaultAgentDefinition } from "../types.js";
+import type { DefaultAgentDefinition } from "../types";
 
 /**
  * Built-in Explore agent.

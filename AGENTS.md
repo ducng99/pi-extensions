@@ -20,11 +20,11 @@ Pi coding agent extension project containing three extensions and shared utiliti
 
 ## Development
 
-- Runtime: Bun (see CLAUDE.md for Bun-specific conventions)
+- Runtime: node
 - Language: TypeScript with strict mode, verbatim module syntax
 - Run tests: `bun test`
-- Lint: `bunx eslint --fix`
-- Type check: `bunx tsc --noEmit`
+- Lint: `npx eslint --fix`
+- Type check: `npx tsc --noEmit`
 - Tests use `beforeAll` for async initialization (e.g., tree-sitter parser)
 - No explicit npm scripts in package.json — use the commands above directly
 
@@ -32,7 +32,7 @@ Pi coding agent extension project containing three extensions and shared utiliti
 
 - Extension entry points export a default function that receives `ExtensionAPI`
 - Tree-sitter parser must be initialized before use — call `await initParser()` in `beforeAll` for tests
-- Relative imports use explicit `.js` extensions; use `import type` for type-only imports
+- Use `import type` for type-only imports
 
 ## Tool Permissions
 
