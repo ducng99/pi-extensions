@@ -13,7 +13,8 @@
       "./extensions/webfetch/index.ts",
       "./extensions/websearch/index.ts",
       "./extensions/footer/index.ts",
-      "./extensions/prompt-arrow/index.ts"
+      "./extensions/prompt-arrow/index.ts",
+      "./extensions/file-rollback/index.ts"
     ]
   },
   "module": "index.ts",
