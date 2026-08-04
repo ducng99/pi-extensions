@@ -35,11 +35,16 @@ function errorResult(
 export default function askUserQuestions(pi: ExtensionAPI) {
     pi.registerTool({
         name: "ask_user_questions",
-        label: "Ask User",
-        description: "Ask the user up to 5 clarifying questions. Each question has pre-generated answer options shown as checkboxes (multi-select) or radio buttons (single-select)",
-        promptSnippet: "Ask the user 1-5 multiple-choice or single-choice questions with pre-generated answers",
+        label: "Ask User Questions",
+        promptSnippet: "Ask the user up to 5 clarifying questions. Each question has pre-generated answer options, single-choice or multiple-choice",
+        description: `
+Usage notes:
+- Users will always be able to select "Other" to provide custom text input
+- Use multipleChoice: true to allow multiple answers to be selected for a question
+- If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label
+        `.trim(),
         promptGuidelines: [
-            "Use ask_user_questions when you need to clarify requirements, confirm decisions, or get user preferences before proceeding.",
+            "Use ask_user_questions only when you are blocked on a decision that is genuinely the user's to make: one you cannot resolve from the request, the code, or sensible defaults",
         ],
         parameters: AskQuestionsParams,
 

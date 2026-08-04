@@ -25,11 +25,9 @@ export default function websearchTool(pi: ExtensionAPI) {
 
     pi.registerTool({
         name: "websearch",
-        label: "Web Search",
-        description: "Search the web and use the results to inform responses. Provides up-to-date information for current events and recent data",
-        promptSnippet: "Search the web for up-to-date information",
-        promptGuidelines: [
-            `- Returns search result information formatted as search result blocks, including links as markdown hyperlinks
+        label: "WebSearch",
+        promptSnippet: "Search the web and returns search result information formatted as search result blocks, including links as markdown hyperlinks",
+        description: `
 - Use this tool for accessing information beyond your knowledge cutoff
 - Searches are performed automatically within a single API call
 
@@ -47,12 +45,14 @@ CRITICAL REQUIREMENT - You MUST follow this:
 
 Usage notes:
   - Domain filtering is supported to include or block specific websites
-  - Web search is only available in the US
 
 IMPORTANT - Use the correct year in search queries:
   - The current month is ${CURRENT_MONTH_YEAR}. You MUST use this year when searching for recent information, documentation, or current events.
   - Example: If the user asks for "latest React docs", search for "React documentation" with the current year, NOT last year
             `.trim(),
+        promptGuidelines: [
+            "Use websearch to discover relevant URLs before calling webfetch.",
+            "Use websearch for accessing information beyond your knowledge cutoff",
         ],
         parameters: WebSearchParams,
 

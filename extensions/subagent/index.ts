@@ -43,7 +43,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
         const discovery = discoverAgents(ctx.cwd);
         const agents = discovery.agents;
         if (agents.length === 0) return;
-        const list = agents.map(a => `${a.name}: ${a.description}`).join("\n");
+        const list = agents.map(a => `  - ${a.name}: ${a.description}`).join("\n");
         pi.sendMessage({
             customType: "subagent-available-agents",
             content: `Available subagents:\n${list}`,
@@ -56,10 +56,42 @@ export default function subagentExtension(pi: ExtensionAPI) {
     pi.registerTool({
         name: "subagent",
         label: "Subagent",
-        description: [
-            "Delegate tasks to specialized subagents with isolated context.",
-            "Set runInBackground: true to start the agent without blocking the parent.",
-        ].join(" "),
+        promptSnippet: "Launch a new agent to handle complex, multi-step tasks. Each agent type has specific capabilities and tools available to it",
+        description: `
+## When not to use
+
+If the target is already known, use the direct tool: Read for a known path, grep via the Bash tool for a specific symbol or string. Reserve this tool for open-ended questions that span the codebase, or tasks that match an available agent type.
+
+## Usage notes
+
+- Always include a short description summarizing what the agent will do
+- When the agent is done, its final report is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.
+- Trust but verify: an agent's summary describes what it intended to do, not necessarily what it did. When an agent writes or edits code, check the actual changes before reporting the work as done.
+- Foreground vs background: Pass runInBackground: false to run an agent in the foreground when you need its results before you can proceed — e.g., research agents whose findings inform your next steps. Otherwise let it run in the background so you can keep working in parallel.
+- When an agent runs in the background, you will be automatically notified when it completes — do NOT sleep, poll, or proactively check on its progress. Continue with other work or respond to the user instead.
+- Don't race: after launching a background agent, you know nothing about its results. Never fabricate or predict them in any format — not as prose, summary, or structured output. The completion notification arrives in a later turn; it is never
+something you write yourself. If the user asks before it lands, say the agent is still running — give status, not a guess.
+- A new Agent call starts a fresh agent with no memory of prior runs, so the prompt must be self-contained.
+- Each agent type's model, reasoning effort, and tool access are set in its definition (.claude/agents/*.md frontmatter, or the SDK agents option); the model parameter here overrides the definition for this one call.
+- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since a fresh agent is not aware of the user's intent
+- If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first.
+- If the user specifies that they want you to run agents "in parallel", you MUST send a single message with multiple Agent tool use content blocks. For example, if you need to launch both a build-validator agent and a test-runner agent in parallel,
+send a single message with both tool calls.
+
+## Writing the prompt
+
+Brief the agent like a smart colleague who just walked into the room — it hasn't seen this conversation, doesn't know what you've tried, doesn't understand why this task matters.
+- Explain what you're trying to accomplish and why.
+- Describe what you've already learned or ruled out.
+- Give enough context about the surrounding problem that the agent can make judgment calls rather than just following a narrow instruction.
+- If you need a short response, say so ("report in under 200 words").
+- Lookups: hand over the exact command. Investigations: hand over the question — prescribed steps become dead weight when the premise is wrong.
+
+Terse command-style prompts produce shallow, generic work.
+
+**Never delegate understanding**. Don't write "based on your findings, fix the bug" or "based on the research, implement it." Those phrases push synthesis onto the agent instead of doing it yourself. Write prompts that prove you understood: include file
+paths, line numbers, what specifically to change.
+        `.trim(),
         parameters: SubagentParams,
 
         async execute(_toolCallId, params, signal, onUpdate, ctx) {
