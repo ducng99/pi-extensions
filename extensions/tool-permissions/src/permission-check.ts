@@ -285,7 +285,7 @@ function checkBashPermission(
 
         // 3. Out-of-bounds check for this command using the effective cwd.
         if (effectiveCwd && isCommandOutOfBounds(leafCmd.args, leafCmd.argString, effectiveCwd, additionalDirs)) {
-            return { decision: "ask" };
+            return { decision: "ask", reason: "⚠ Accessing outside allowed directories." };
         }
 
         // 4a. Allow rule match.
