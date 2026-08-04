@@ -14,7 +14,8 @@
       "./extensions/websearch/index.ts",
       "./extensions/footer/index.ts",
       "./extensions/prompt-arrow/index.ts",
-      "./extensions/file-rollback/index.ts"
+      "./extensions/file-rollback/index.ts",
+      "./extensions/session-namer/index.ts"
     ]
   },
   "module": "index.ts",
