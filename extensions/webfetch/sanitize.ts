@@ -57,10 +57,20 @@ async function createSanitizeSession() {
         noTools: "all",
     });
 
-    const model = session.modelRuntime.getModel("opencode", "mimo-v2.5-free");
-    if (model) {
-        session.setModel(model);
-    }
+    const models = [
+        ["opencode", "deepseek-v4-flash-free"],
+        ["opencode", "mimo-v2.5-free"],
+        ["opencode-go", "deepseek-v4-flash"],
+    ];
+    let model;
+    let modelIndex = 0;
+
+    do {
+        model = session.modelRuntime.getModel(models[modelIndex][0], models[modelIndex][1]);
+        if (model) {
+            session.setModel(model);
+        }
+    } while (!model && ++modelIndex < models.length);
     return session;
 }
 
