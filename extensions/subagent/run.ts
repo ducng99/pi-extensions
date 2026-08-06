@@ -12,6 +12,18 @@ import path from "path";
 import type { AgentConfig, BackgroundTaskInfo, Message, SingleResult, UsageStats } from "./types";
 import { permissionsToClaudeSettings } from "./utils";
 
+let doSpawn: typeof spawn = spawn;
+
+/**
+ * Testing hook: replace the underlying process spawner.
+ * Used instead of mock.module("child_process") so the mock does not leak to
+ * other test files that share the same test worker and also import from
+ * `child_process`.
+ */
+export function setSpawnForTests(fn: typeof spawn): void {
+    doSpawn = fn;
+}
+
 const SUBAGENT_PERMISSIONS_ENV_VAR = "PI_SUBAGENT_PERMISSIONS_FILE";
 
 // Background tasks are kept in a weak registry so we can clean up old temp
@@ -191,7 +203,7 @@ export async function runSingleAgent(
 
         const exitCode = await new Promise<number>((resolve) => {
             const invocation = getPiInvocation(args);
-            const proc = spawn(invocation.command, invocation.args, {
+            const proc = doSpawn(invocation.command, invocation.args, {
                 cwd: cwd ?? defaultCwd,
                 shell: false,
                 stdio: ["ignore", "pipe", "pipe"],
@@ -403,7 +415,7 @@ export async function runAgentInBackground(
         const errFd = fs.openSync(errorPath, "w");
 
         const invocation = getPiInvocation(args);
-        const proc = spawn(invocation.command, invocation.args, {
+        const proc = doSpawn(invocation.command, invocation.args, {
             cwd: cwd ?? defaultCwd,
             shell: false,
             stdio: ["ignore", outFd, errFd],

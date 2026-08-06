@@ -27,11 +27,12 @@ const mockSpawn = mock((_command: string, _args: string[], _options: unknown) =>
     return proc;
 });
 
-mock.module("child_process", () => ({
-    spawn: mockSpawn,
-}));
 
-const { runSingleAgent, getBackgroundTaskInfo, listBackgroundTasks } = await import("../run");
+const { runSingleAgent, getBackgroundTaskInfo, listBackgroundTasks, setSpawnForTests } = await import("../run");
+
+// Inject the mock spawner instead of mock.module("child_process"), which would
+// globally override the module and break sibling test files that use real spawn.
+setSpawnForTests(mockSpawn as never);
 
 const agents: AgentConfig[] = [
     {

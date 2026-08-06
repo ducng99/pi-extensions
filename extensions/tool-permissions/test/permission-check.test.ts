@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 
 import { initParser } from "../../shared/bash-parser/index";
-import { checkPermission, isOutOfBounds } from "../src/permission-check";
+import { checkPermission, isOutOfBounds, REASON_BASH_COMPLEX, REASON_BASH_PARSE_ERROR } from "../src/permission-check";
 import type { ParsedPermissions } from "../src/permission-parsing";
 import { parseClaudePerms, parseOpencodePerms } from "../src/permission-parsing";
 
@@ -491,7 +491,7 @@ describe("checkPermission: complex and error commands", () => {
         expect(result.decision).toBe("ask");
         if (result.decision === "ask") {
             expect(result.reason).toBeDefined();
-            expect(result.reason).toContain("too complex");
+            expect(result.reason).toStrictEqual(REASON_BASH_COMPLEX);
         }
     });
 
@@ -501,7 +501,7 @@ describe("checkPermission: complex and error commands", () => {
         expect(result.decision).toBe("ask");
         if (result.decision === "ask") {
             expect(result.reason).toBeDefined();
-            expect(result.reason).toContain("could not be parsed");
+            expect(result.reason).toStrictEqual(REASON_BASH_PARSE_ERROR);
         }
     });
 
