@@ -64,7 +64,16 @@ export function formatConfirmMessage(theme: Theme, toolName: string, input: Reco
             break;
         }
         default:
-            lines.push(`Tool: ${toolName}`);
+            // MCP tools use the `mcp__<server>__<tool>` naming convention
+            if (toolName.startsWith("mcp__")) {
+                const idx = toolName.indexOf("__", "mcp__".length);
+                const server = idx === -1 ? toolName.slice("mcp__".length) : toolName.slice("mcp__".length, idx);
+                const tool = idx === -1 ? "" : toolName.slice(idx + 2);
+                lines.push(`MCP ${server}: ${tool}`);
+            }
+            else {
+                lines.push(`Tool: ${toolName}`);
+            }
     }
 
     if (reason?.trim()) {

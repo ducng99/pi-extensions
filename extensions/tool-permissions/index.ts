@@ -20,7 +20,7 @@ import type { ExtensionAPI, ToolCallEvent, ToolCallEventResult } from "@earendil
 import { initParser } from "../shared/bash-parser/index";
 import { type PermissionResult, PermissionSelector } from "../shared/tui-components/index";
 import { formatConfirmMessage } from "./src/confirmation-message";
-import { checkPermission } from "./src/permission-check";
+import { checkPermission, isMcpTool } from "./src/permission-check";
 import { collectAllSettings, mergePermissions } from "./src/settings-loading";
 import { TOOL_CATEGORY } from "./src/tool-categories";
 
@@ -56,9 +56,10 @@ export default function (pi: ExtensionAPI) {
     pi.on("tool_call", async (event: ToolCallEvent, ctx): Promise<ToolCallEventResult | void> => {
         const toolName = event.toolName;
 
-        // Only intercept tools we have category mappings for
+        // Only intercept tools we have category mappings for, plus MCP tools
+        // (addressed as `mcp__<server>__<tool>` and checked by their own rules).
         const category = TOOL_CATEGORY[toolName];
-        if (!category) return undefined;
+        if (!category && !isMcpTool(toolName)) return undefined;
 
         // Ensure parser is initialized before checking permissions
         await ensureParserInitialized();

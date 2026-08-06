@@ -550,6 +550,96 @@ describe("isOutOfBounds: bash commands", () => {
     });
 });
 
+describe("checkPermission: MCP tools (mcp__<server>__<tool>)", () => {
+    test("bare server rule allows every tool on that server", () => {
+        const perms = makePerms({ allow: [{ category: "mcp__github", pattern: "*" }] });
+        expect(checkPermission("mcp__github__create_issue", {}, perms).decision).toBe("allow");
+        expect(checkPermission("mcp__github__list_prs", {}, perms).decision).toBe("allow");
+    });
+
+    test("server wildcard rule (mcp__github__*) allows every tool on that server", () => {
+        const perms = makePerms({ allow: [{ category: "mcp__github__*", pattern: "*" }] });
+        expect(checkPermission("mcp__github__create_issue", {}, perms).decision).toBe("allow");
+    });
+
+    test("server wildcard rule does not match a different server", () => {
+        const perms = makePerms({ allow: [{ category: "mcp__github__*", pattern: "*" }] });
+        expect(checkPermission("mcp__gitlab__create_issue", {}, perms).decision).toBe("ask");
+    });
+
+    test("specific tool rule matches only that tool", () => {
+        const perms = makePerms({ allow: [{ category: "mcp__github__create_issue", pattern: "*" }] });
+        expect(checkPermission("mcp__github__create_issue", {}, perms).decision).toBe("allow");
+        expect(checkPermission("mcp__github__list_prs", {}, perms).decision).toBe("ask");
+    });
+
+    test("tool-segment wildcard matches get_* tools", () => {
+        const perms = makePerms({ allow: [{ category: "mcp__github__get_*", pattern: "*" }] });
+        expect(checkPermission("mcp__github__get_issue", {}, perms).decision).toBe("allow");
+        expect(checkPermission("mcp__github__create_issue", {}, perms).decision).toBe("ask");
+    });
+
+    test("global mcp__* deny blocks every MCP tool", () => {
+        const perms = makePerms({ deny: [{ category: "mcp__*", pattern: "*" }] });
+        expect(checkPermission("mcp__github__create_issue", {}, perms).decision).toBe("deny");
+        expect(checkPermission("mcp__sentry__list_issues", {}, perms).decision).toBe("deny");
+    });
+
+    test("server name matching is literal (mcp__github does not match mcp__github_evil)", () => {
+        const perms = makePerms({ allow: [{ category: "mcp__github", pattern: "*" }] });
+        expect(checkPermission("mcp__github_evil__rustle", {}, perms).decision).toBe("ask");
+    });
+
+    test("deny rule takes priority over a broader allow rule", () => {
+        const perms = makePerms({
+            deny: [{ category: "mcp__github__delete_*", pattern: "*" }],
+            allow: [{ category: "mcp__github", pattern: "*" }],
+        });
+        expect(checkPermission("mcp__github__delete_repo", {}, perms).decision).toBe("deny");
+        expect(checkPermission("mcp__github__list_prs", {}, perms).decision).toBe("allow");
+    });
+
+    test("ask rule takes priority over allow", () => {
+        const perms = makePerms({
+            ask: [{ category: "mcp__github__push", pattern: "*" }],
+            allow: [{ category: "mcp__github", pattern: "*" }],
+        });
+        expect(checkPermission("mcp__github__push", {}, perms).decision).toBe("ask");
+    });
+
+    test("no matching rule defaults to ask", () => {
+        const perms = makePerms({});
+        expect(checkPermission("mcp__github__create_issue", {}, perms).decision).toBe("ask");
+    });
+});
+
+describe("parseClaudePerms: MCP rules", () => {
+    test("parses MCP permission entries into category + * pattern", () => {
+        const config = JSON.stringify({
+            permissions: {
+                allow: ["mcp__github__create_issue", "mcp__github", "mcp__sentry__*"],
+                deny: ["mcp__*"],
+            },
+        });
+        const result = parseClaudePerms(config);
+        expect(result.allow.some(r => r.category === "mcp__github__create_issue" && r.pattern === "*")).toBe(true);
+        expect(result.allow.some(r => r.category === "mcp__github" && r.pattern === "*")).toBe(true);
+        expect(result.allow.some(r => r.category === "mcp__sentry__*" && r.pattern === "*")).toBe(true);
+        expect(result.deny.some(r => r.category === "mcp__*" && r.pattern === "*")).toBe(true);
+    });
+
+    test("MCP allow rules parsed from claude settings drive checkPermission", () => {
+        const config = JSON.stringify({
+            permissions: {
+                allow: ["mcp__github__create_issue"],
+            },
+        });
+        const merged = parseClaudePerms(config);
+        expect(checkPermission("mcp__github__create_issue", {}, merged).decision).toBe("allow");
+        expect(checkPermission("mcp__github__other", {}, merged).decision).toBe("ask");
+    });
+});
+
 describe("parseClaudePerms: additionalDirectories parsing", () => {
     test("parses additionalDirectories from inside permissions object", () => {
         const config = JSON.stringify({

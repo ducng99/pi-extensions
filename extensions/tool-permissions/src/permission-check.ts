@@ -180,6 +180,13 @@ export function checkPermission(
         return checkBashPermission(input, merged, cwd);
     }
 
+    // MCP tools are addressed with the format `mcp__<server>__<tool>` (the same
+    // format Claude Code uses for MCP permission rules), so rules declared in
+    // claude settings apply here directly.
+    if (isMcpTool(toolName)) {
+        return checkMcpPermission(toolName, merged);
+    }
+
     const category = TOOL_CATEGORY[toolName] ?? toolName;
     const argString = buildArgString(toolName, input);
 
@@ -213,6 +220,75 @@ export function checkPermission(
     }
 
     // 5. Default: ask
+    return { decision: "ask" };
+}
+
+// ============================================================================
+// MCP Permission Check
+// ============================================================================
+
+/**
+ * True if the tool name uses the MCP naming convention `mcp__<server>__<tool>`.
+ */
+export function isMcpTool(name: string): boolean {
+    return name.startsWith("mcp__") && name.indexOf("__", "mcp__".length) !== -1;
+}
+
+/**
+ * Return the server-scoped prefix of an MCP name, e.g. `mcp__github__create_issue`
+ * → `mcp__github__`. For a bare server name (`mcp__github`) it appends the
+ * trailing separator so it compares equal to a tool's prefix.
+ */
+function mcpServerPrefix(name: string): string {
+    const idx = name.indexOf("__", "mcp__".length);
+    if (idx === -1) return name + "__";
+    return name.slice(0, idx + 2);
+}
+
+/**
+ * Match an MCP permission spec (`mcp__server`, `mcp__server__tool`, or any
+ * `*`-wildcard variant) against a concrete MCP tool name. The server segment
+ * must match literally; only the tool segment may use wildcards.
+ */
+function mcpSpecMatches(spec: string, toolName: string): boolean {
+    // Global wildcard matches any MCP tool.
+    if (spec === "mcp__*") return true;
+    if (!spec.startsWith("mcp__")) return false;
+
+    const toolPrefix = mcpServerPrefix(toolName);
+
+    // Bare server spec (e.g. `mcp__github`): matches every tool of that server.
+    const specHasTool = spec.indexOf("__", "mcp__".length) !== -1;
+    if (!specHasTool) {
+        return spec + "__" === toolPrefix;
+    }
+
+    // Spec with a tool segment: server must match literally, tool may glob.
+    const specServer = mcpServerPrefix(spec);
+    if (specServer !== toolPrefix) return false;
+
+    return matchPattern(spec.slice(specServer.length), toolName.slice(toolPrefix.length));
+}
+
+/**
+ * Check whether an MCP tool call is permitted. MCP rules carry no path/arg
+ * specifier in the pattern (Claude scopes them purely by tool name), so the
+ * tool's name is matched, not an argument string.
+ */
+function checkMcpPermission(toolName: string, merged: ParsedPermissions): PermissionDecision {
+    const matchesRule = (rule: { category: string; pattern: string }): boolean =>
+        mcpSpecMatches(rule.category, toolName) && matchPattern(rule.pattern, "");
+
+    for (const rule of merged.deny) {
+        if (matchesRule(rule)) return { decision: "deny" };
+    }
+    for (const rule of merged.ask) {
+        if (matchesRule(rule)) return { decision: "ask" };
+    }
+    for (const rule of merged.allow) {
+        if (matchesRule(rule)) return { decision: "allow" };
+    }
+
     return { decision: "ask" };
 }
 

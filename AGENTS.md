@@ -4,7 +4,7 @@ This file provides guidance to coding agents when working with code in this repo
 
 ## Project Overview
 
-Pi coding agent extension project containing nine extensions and shared utilities. Extensions are registered via `pi.extensions` in package.json. No build step — raw TypeScript is loaded directly by Pi's extension system (`tsconfig.json` has `"noEmit": true`).
+Pi coding agent extension project containing ten extensions and shared utilities. Extensions are registered via `pi.extensions` in package.json. No build step — raw TypeScript is loaded directly by Pi's extension system (`tsconfig.json` has `"noEmit": true`).
 
 ## Extensions
 
@@ -16,7 +16,8 @@ Pi coding agent extension project containing nine extensions and shared utilitie
 - `extensions/footer` — Renders custom footer with cwd, git branch, context usage, and model info
 - `extensions/prompt-arrow` — Custom editor component replacing the default `>` prompt with `❯`
 - `extensions/file-rollback` — Snapshots working directory state via a shadow git repo (`~/.pi/agent/file-rollback/<projectHash>/.git`), supports rolling back via `/tree`
-- `extensions/session-namer` — Auto-names sessions using a small dedicated model (gemma4-tiny via llama.cpp) via a temporary isolated session
+- `extensions/session-namer` — Auto-names sessions using a small dedicated model via a temporary isolated session
+- `extensions/mcp` — MCP client: connects pi to external MCP servers (stdio + streamable HTTP) via the `@modelcontextprotocol/sdk`, exposing their tools/resources/prompts as pi tools, with full OAuth support
 - `extensions/shared/` — Reusable utilities:
   - `bash-parser` — Tree-sitter based bash command parser (requires WASM initialization via `initParser()`)
   - `tui-components` — Reusable TUI components (`PermissionSelector`, `InlineInput`, `NoInputInline`)

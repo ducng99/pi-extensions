@@ -12,7 +12,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 const NAME_MODEL_PROVIDER = "llama.cpp";
-const NAME_MODEL_ID = "gemma4-tiny";
+const NAME_MODEL_ID = "lfm";
 
 type NameResult = {
     name?: string;
