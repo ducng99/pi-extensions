@@ -4,9 +4,10 @@
  * Performs web searches via Ollama's web search API.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, truncateHead } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
+import { WebContentCache } from "../shared/web-content-cache/index";
 import type { WebSearchResponse } from "./ollama";
 import { ollamaWebSearch } from "./ollama";
 import { WebSearchParams } from "./schema";
@@ -14,7 +15,7 @@ import { WebSearchParams } from "./schema";
 function formatResults(data: WebSearchResponse): string {
     const lines = data.results.map((r, i) => {
         const title = r.title || "(no title)";
-        return `${i + 1}. ${title}\n   ${r.url}\n   ${r.content}`;
+        return `${i + 1}. ${title}\n    ${r.url}\n    ${truncateHead(r.content, { maxLines: 5, maxBytes: 1024 }).content}`;
     });
     return lines.length > 0 ? lines.join("\n\n") : "No results found.";
 }
@@ -22,13 +23,13 @@ function formatResults(data: WebSearchResponse): string {
 export default function websearchTool(pi: ExtensionAPI) {
     const now = new Date();
     const CURRENT_MONTH_YEAR = now.getFullYear() + "-" + (now.getMonth() + 1).toString().padStart(2, "0");
+    const cache = new WebContentCache();
 
     pi.registerTool({
         name: "websearch",
         label: "WebSearch",
         promptSnippet: "Search the web and returns search result information formatted as search result blocks, including links as markdown hyperlinks",
         description: `
-- Use this tool for accessing information beyond your knowledge cutoff
 - Searches are performed automatically within a single API call
 
 CRITICAL REQUIREMENT - You MUST follow this:
@@ -61,6 +62,15 @@ IMPORTANT - Use the correct year in search queries:
 
             try {
                 const data = await ollamaWebSearch(params.query, maxResults, signal);
+
+                // Cache the full page content so a later webfetch of the same
+                // URL can skip the network fetch and HTML→markdown conversion.
+                for (const r of data.results) {
+                    if (r.url && r.content) {
+                        await cache.set(r.url, r.content);
+                    }
+                }
+
                 return {
                     content: [{ type: "text" as const, text: formatResults(data) }],
                     details: { query: params.query, results: data.results },

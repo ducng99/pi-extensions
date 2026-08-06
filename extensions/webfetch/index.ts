@@ -8,6 +8,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
+import { WebContentCache } from "../shared/web-content-cache/index";
 import { extractBody, isHtmlContentType } from "./html";
 import { htmlToMarkdown } from "./markdown";
 import { sanitizeWithPiSession } from "./sanitize";
@@ -15,11 +16,23 @@ import { WebFetchParams } from "./schema";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
 
+/** Structured details returned for every webfetch result. */
+interface WebFetchDetails {
+    ok: boolean;
+    url: string;
+    cached: boolean;
+    status?: number;
+    /** Set when the request was redirected; the caller should fetch this URL instead. */
+    redirect?: string;
+    contentType?: string | null;
+}
+
 export default function webfetchTool(pi: ExtensionAPI) {
-    pi.registerTool({
+    const cache = new WebContentCache();
+    pi.registerTool<typeof WebFetchParams, WebFetchDetails>({
         name: "webfetch",
         label: "WebFetch",
-        promptSnippet: "Fetch a URL and return a summarized response",
+        promptSnippet: "Fetch a URL and return a summarized markdown response if the page is HTML, otherwise raw content",
         description: `
 IMPORTANT: webfetch WILL FAIL for authenticated or private URLs. Before using this tool, check if the URL points to an authenticated service (e.g. Google Docs, Confluence, Jira, GitHub). If so, look for a specialized MCP tool that provides
 authenticated access.
@@ -32,9 +45,7 @@ authenticated access.
 - Use this tool when you need to retrieve and analyze web content
 
 Usage notes:
-- IMPORTANT: If an MCP-provided web fetch tool is available, prefer using that tool instead of this one, as it may have fewer restrictions.
 - The URL must be a fully-formed valid URL
-- HTTP URLs will be automatically upgraded to HTTPS
 - The prompt should describe what information you want to extract from the page
 - This tool is read-only and does not modify any files
 - Results may be summarized if the content is very large
@@ -49,69 +60,137 @@ Usage notes:
 
         async execute(_toolCallId, params, signal) {
             const timeoutMs = params.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
-            const controller = new AbortController();
-            const outerSignal = signal ?? undefined;
 
-            const abortFromEither = () => controller.abort();
-            if (outerSignal) {
-                if (outerSignal.aborted) controller.abort();
-                else outerSignal.addEventListener("abort", abortFromEither, { once: true });
+            // Pass 1: obtain the markdown. A cache hit (e.g. from websearch)
+            // gives us the already-converted markdown directly; otherwise we
+            // fetch the URL and convert HTML→markdown.
+            let markdown: string;
+            let contentType: string | null;
+            let status: number;
+            let fromCache: boolean;
+
+            const cachedMarkdown = await cache.get(params.url);
+            if (cachedMarkdown !== undefined) {
+                markdown = cachedMarkdown;
+                contentType = null;
+                status = 200;
+                fromCache = true;
             }
-            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+            else {
+                const controller = new AbortController();
+                const outerSignal = signal ?? undefined;
+                const abortFromEither = () => controller.abort();
+                if (outerSignal) {
+                    if (outerSignal.aborted) controller.abort();
+                    else outerSignal.addEventListener("abort", abortFromEither, { once: true });
+                }
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-            try {
-                const response = await fetch(params.url, { signal: controller.signal, redirect: "follow" });
-                const rawBody = await response.text();
+                try {
+                    const response = await fetch(params.url, { signal: controller.signal, redirect: "manual" });
 
-                if (!response.ok) {
-                    const bodyText = rawBody.length > 0 ? `\n${rawBody}` : "";
+                    // Don't follow redirects: surface the target URL so the caller
+                    // can issue a fresh WebFetch for it (as the tool description says).
+                    // `redirect: "manual"` hands us the redirect response (3xx) with a
+                    // `location` header instead of transparently following it.
+                    const location = response.headers.get("location");
+                    const isRedirect = response.status >= 300 && response.status < 400 && location !== null;
+                    if (isRedirect) {
+                        const redirectUrl = new URL(location, params.url).toString();
+                        return {
+                            content: [
+                                {
+                                    type: "text" as const,
+                                    text: `Status: ${response.status}. Redirect URL: ${redirectUrl}\nThe requested URL redirected. Fetch the redirect URL above to retrieve the content.`,
+                                },
+                            ],
+                            details: {
+                                ok: false,
+                                url: params.url,
+                                cached: false,
+                                status: response.status,
+                                redirect: redirectUrl,
+                            },
+                            isError: false,
+                        };
+                    }
+
+                    const rawBody = await response.text();
+
+                    if (!response.ok) {
+                        const bodyText = rawBody.length > 0 ? `\n${rawBody}` : "";
+                        return {
+                            content: [{ type: "text" as const, text: `Failed to fetch ${params.url} (${response.status} ${response.statusText}):${bodyText}` }],
+                            details: { url: params.url, status: response.status, ok: false, contentType: response.headers.get("content-type") ?? undefined, cached: false },
+                            isError: true,
+                        };
+                    }
+
+                    contentType = response.headers.get("content-type");
+                    markdown = isHtmlContentType(contentType)
+                        ? htmlToMarkdown(extractBody(rawBody))
+                        : rawBody;
+                    // Cache the fetched content for later requests to the same URL.
+                    await cache.set(params.url, markdown);
+                    status = response.status;
+                    fromCache = false;
+                }
+                catch (err) {
+                    const message = err instanceof Error ? err.message : String(err);
+                    const aborted = controller.signal.aborted;
                     return {
-                        content: [{ type: "text" as const, text: `Failed to fetch ${params.url} (${response.status} ${response.statusText}):${bodyText}` }],
-                        details: { url: params.url, status: response.status, statusText: response.statusText, contentLength: rawBody.length, ok: false, contentType: response.headers.get("content-type") ?? undefined },
+                        content: [
+                            {
+                                type: "text" as const,
+                                text: aborted
+                                    ? `webfetch aborted (timeout after ${timeoutMs}ms or canceled): ${params.url}`
+                                    : `Failed to fetch ${params.url}: ${message}`,
+                            },
+                        ],
+                        details: { url: params.url, ok: false, cached: false },
                         isError: true,
                     };
                 }
+                finally {
+                    clearTimeout(timeoutId);
+                    if (outerSignal) outerSignal.removeEventListener("abort", abortFromEither);
+                }
+            }
 
-                // Pass 1: extract body + convert to markdown
-                const contentType = response.headers.get("content-type");
-                const markdown = isHtmlContentType(contentType)
-                    ? htmlToMarkdown(extractBody(rawBody))
-                    : rawBody;
-
-                // Pass 2: sanitize via pi session
+            // Pass 2: sanitize via pi session (single path for cache + network).
+            try {
                 const sanitized = await sanitizeWithPiSession(markdown, params.prompt);
-
                 return {
                     content: [{ type: "text" as const, text: sanitized }],
                     details: {
                         url: params.url,
-                        status: response.status,
-                        statusText: response.statusText,
-                        contentLength: rawBody.length,
+                        status,
                         ok: true,
                         contentType: contentType ?? undefined,
+                        cached: fromCache,
                     },
                 };
             }
             catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
-                const aborted = controller.signal.aborted;
                 return {
                     content: [
                         {
                             type: "text" as const,
-                            text: aborted
-                                ? `webfetch aborted (timeout after ${timeoutMs}ms or canceled): ${params.url}`
-                                : `Failed to fetch ${params.url}: ${message}`,
+                            text: fromCache
+                                ? `Failed to process cached content for ${params.url}: ${message}`
+                                : `Failed to sanitize content for ${params.url}: ${message}`,
                         },
                     ],
-                    details: { url: params.url, status: 0, statusText: "", contentLength: 0, ok: false, contentType: undefined },
+                    details: {
+                        url: params.url,
+                        status,
+                        ok: false,
+                        contentType: contentType ?? undefined,
+                        cached: fromCache,
+                    },
                     isError: true,
                 };
-            }
-            finally {
-                clearTimeout(timeoutId);
-                if (outerSignal) outerSignal.removeEventListener("abort", abortFromEither);
             }
         },
 
