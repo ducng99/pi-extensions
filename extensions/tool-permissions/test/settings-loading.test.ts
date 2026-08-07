@@ -55,7 +55,7 @@ describe("collectAllSettings", () => {
         const settings = collectAllSettings(projectDir);
         expect(settings.length).toBe(2);
         const merged = settings[settings.length - 1];
-        expect(merged?.deny).toContainEqual({ category: "edit", pattern: "*", decision: "deny" });
+        expect(merged?.deny).toContainEqual({ category: "edit", pattern: "*" });
     });
 
     test("subagent permissions file is merged after user settings", () => {
@@ -87,8 +87,8 @@ describe("collectAllSettings", () => {
 
         const settings = collectAllSettings(projectDir);
         expect(settings.length).toBe(2);
-        expect(settings[0]?.allow).toContainEqual({ category: "edit", pattern: "*", decision: "allow" });
-        expect(settings[1]?.deny).toContainEqual({ category: "edit", pattern: "*", decision: "deny" });
+        expect(settings[0]?.allow).toContainEqual({ category: "edit", pattern: "*" });
+        expect(settings[1]?.deny).toContainEqual({ category: "edit", pattern: "*" });
     });
 
     test("ignores missing PI_SUBAGENT_PERMISSIONS_FILE", () => {
@@ -140,6 +140,6 @@ describe("collectAllSettings", () => {
 
         const settings = collectAllSettings(projectDir);
         const merged = settings[settings.length - 1];
-        expect(merged?.deny).toContainEqual({ category: "bash", pattern: "*", decision: "deny" });
+        expect(merged?.deny).toContainEqual({ category: "bash", pattern: "*" });
     });
 });

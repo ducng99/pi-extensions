@@ -27,7 +27,6 @@ const mockSpawn = mock((_command: string, _args: string[], _options: unknown) =>
     return proc;
 });
 
-
 const { runSingleAgent, getBackgroundTaskInfo, listBackgroundTasks, setSpawnForTests } = await import("../run");
 
 // Inject the mock spawner instead of mock.module("child_process"), which would

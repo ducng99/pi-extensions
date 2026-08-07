@@ -16,9 +16,9 @@ function makePerms(opts: {
     deny?: { category: string; pattern: string }[];
 }): ParsedPermissions {
     return {
-        allow: (opts.allow ?? []).map(r => ({ ...r, decision: "allow" as const })),
-        ask: (opts.ask ?? []).map(r => ({ ...r, decision: "ask" as const })),
-        deny: (opts.deny ?? []).map(r => ({ ...r, decision: "deny" as const })),
+        allow: (opts.allow ?? []).map(r => ({ ...r })),
+        ask: (opts.ask ?? []).map(r => ({ ...r })),
+        deny: (opts.deny ?? []).map(r => ({ ...r })),
     };
 }
 

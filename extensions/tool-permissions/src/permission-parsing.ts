@@ -7,7 +7,6 @@ import { stripJsoncComments } from "../../shared/jsonc-utils/index";
 export interface PermissionRule {
     category: string;
     pattern: string;
-    decision: "allow" | "ask" | "deny";
 }
 
 export interface ParsedPermissions {
@@ -103,7 +102,7 @@ export function parseOpencodePerms(content: string): ParsedPermissions {
         for (const [pattern, decision] of Object.entries(patterns)) {
             const dec = String(decision).toLowerCase();
             if (dec !== "allow" && dec !== "ask" && dec !== "deny") continue;
-            result[dec].push({ category, pattern: normalizePattern(pattern), decision: dec });
+            result[dec].push({ category, pattern: normalizePattern(pattern) });
         }
     }
 
@@ -144,7 +143,6 @@ export function parseClaudePerms(content: string): ParsedPermissions {
             result[decision].push({
                 category: tool,
                 pattern,
-                decision,
             });
         }
     }
