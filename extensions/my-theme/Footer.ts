@@ -1,13 +1,11 @@
-import type { ExtensionContext, ReadonlyFooterDataProvider, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-export function createFooter(ctx: ExtensionContext, theme: Theme, footerData: ReadonlyFooterDataProvider): Component {
+export function createFooter(ctx: ExtensionContext, theme: Theme): Component {
     return {
         invalidate() {},
 
         render(width: number): string[] {
-            const pwdLine = pathSection(ctx, theme, footerData);
-
             const left = contextSection(ctx, theme);
             const right = modelSection(ctx, theme);
 
@@ -16,23 +14,10 @@ export function createFooter(ctx: ExtensionContext, theme: Theme, footerData: Re
             const pad = " ".repeat(Math.max(1, width - leftWidth - rightWidth));
 
             return [
-                truncateToWidth(pwdLine, width),
                 truncateToWidth(left + pad + right, width),
             ];
         },
     };
-}
-
-function pathSection(ctx: ExtensionContext, theme: Theme, footerData: ReadonlyFooterDataProvider): string {
-    let cwd = ctx.sessionManager.getCwd();
-    const home = process.env.HOME || process.env.USERPROFILE;
-    if (home && cwd.startsWith(home)) {
-        cwd = "~" + cwd.slice(home.length);
-    }
-    const branch = footerData.getGitBranch();
-    if (branch) cwd += ` (${branch})`;
-
-    return theme.fg("dim", cwd);
 }
 
 function contextSection(ctx: ExtensionContext, theme: Theme): string {

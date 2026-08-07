@@ -1,8 +1,12 @@
-import { DefaultResourceLoader, type Extension, type ExtensionContext, getAgentDir, type Skill, type SourceInfo, type Theme, VERSION } from "@earendil-works/pi-coding-agent";
+import { DefaultResourceLoader, type Extension, type ExtensionContext, getAgentDir, type ReadonlyFooterDataProvider, type Skill, type SourceInfo, type Theme, VERSION } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { relative } from "path";
 
-export function createHeader(ctx: ExtensionContext, theme: Theme): Component {
+export function createHeader(
+    ctx: ExtensionContext,
+    theme: Theme,
+    getFooterData: () => ReadonlyFooterDataProvider | null,
+): Component {
     let skills: Skill[] = [];
     let extensions: Extension[] = [];
 
@@ -23,19 +27,20 @@ export function createHeader(ctx: ExtensionContext, theme: Theme): Component {
             const lines = [
                 "",
                 `${theme.bold("Pi")} ${theme.fg("muted", "v" + VERSION)}`,
+                currentPath(ctx.cwd, theme, getFooterData),
             ];
 
             if (ctx.ui.getToolsExpanded()) {
                 const skillsLines = wrapTextWithAnsi(skills.map(s => s.name).join(", "), width - 11 - 8);
                 const extensionsLines = wrapTextWithAnsi(extensions.filter(e => !e.hidden).map(compactExtensionLabel).join(", "), width - 11 - 12);
 
-                lines.push(theme.fg("muted", "Skills: " + skillsLines[0]));
-                lines.push(...skillsLines.map(line => theme.fg("muted", line)).slice(1));
-                lines.push(theme.fg("muted", "Extensions: " + extensionsLines[0]));
-                lines.push(...extensionsLines.map(line => theme.fg("muted", line)).slice(1));
+                lines.push(theme.fg("dim", "Skills: " + skillsLines[0]));
+                lines.push(...skillsLines.slice(1).map(line => theme.fg("dim", line)));
+                lines.push(theme.fg("dim", "Extensions: " + extensionsLines[0]));
+                lines.push(...extensionsLines.slice(1).map(line => theme.fg("dim", line)));
             }
             else {
-                lines.push(theme.fg("muted", `Skills: ${skills.length} · Extensions: ${extensions.length}`));
+                lines.push(theme.fg("dim", `Skills: ${skills.length} · Extensions: ${extensions.length}`));
             }
 
             for (let i = 0; i < Math.max(5, lines.length); i++) {
@@ -126,4 +131,15 @@ function compactExtensionLabel(extension: Extension): string {
     }
     const segments = shortExtensionPath(extension.path, sourceInfo.baseDir).split("/").filter(segment => segment.length > 0);
     return segments[segments.length - 1] ?? extension.path;
+}
+
+function currentPath(cwd: string, theme: Theme, getFooterData: () => ReadonlyFooterDataProvider | null): string {
+    const home = process.env.HOME || process.env.USERPROFILE;
+    if (home && cwd.startsWith(home)) {
+        cwd = "~" + cwd.slice(home.length);
+    }
+    const branch = getFooterData()?.getGitBranch();
+    if (branch) cwd += ` (${branch})`;
+
+    return theme.fg("dim", cwd);
 }
