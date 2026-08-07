@@ -30,8 +30,6 @@ export default function websearchTool(pi: ExtensionAPI) {
         label: "WebSearch",
         promptSnippet: "Search the web and returns search result information formatted as search result blocks, including links as markdown hyperlinks",
         description: `
-- Searches are performed automatically within a single API call
-
 CRITICAL REQUIREMENT - You MUST follow this:
   - After answering the user's question, you MUST include a "Sources:" section at the end of your response
   - In the Sources section, list all relevant URLs from the search results as markdown hyperlinks: [Title](URL)
@@ -43,9 +41,6 @@ CRITICAL REQUIREMENT - You MUST follow this:
     Sources:
     - [Source Title 1](https://example.com/1)
     - [Source Title 2](https://example.com/2)
-
-Usage notes:
-  - Domain filtering is supported to include or block specific websites
 
 IMPORTANT - Use the correct year in search queries:
   - The current month is ${CURRENT_MONTH_YEAR}. You MUST use this year when searching for recent information, documentation, or current events.

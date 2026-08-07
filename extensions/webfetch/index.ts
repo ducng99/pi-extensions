@@ -34,7 +34,7 @@ export default function webfetchTool(pi: ExtensionAPI) {
         label: "WebFetch",
         promptSnippet: "Fetch a URL and return a summarized markdown response if the page is HTML, otherwise raw content",
         description: `
-IMPORTANT: webfetch WILL FAIL for authenticated or private URLs. Before using this tool, check if the URL points to an authenticated service (e.g. Google Docs, Confluence, Jira, GitHub). If so, look for a specialized MCP tool that provides
+IMPORTANT: webfetch WILL FAIL for authenticated URLs. Before using this tool, check if the URL points to an authenticated service (e.g. Google Docs, Confluence, Jira, GitHub). If so, look for a specialized MCP tool that provides
 authenticated access.
 
 - Fetches content from a specified URL and processes it using an AI model

@@ -71,7 +71,10 @@ Your output must be:
 "@App.tsx add dark mode toggle" -> Dark mode toggle in App
 </examples>`,
             messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
+        }, {
+            timeoutMs: 10_000,
         });
+
         const result = response.content.reduce((msg, cur) => {
             if (cur.type === "text") msg += cur.text;
             return msg;

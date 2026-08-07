@@ -5,7 +5,10 @@
  * payloads that may be embedded in the source page.
  */
 
-import { type AgentSession, createAgentSession, DefaultResourceLoader, getAgentDir, SessionManager } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, truncateHead } from "@earendil-works/pi-coding-agent";
+import { mkdtempSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 const SYSTEM_PROMPT = `
 You are a web content summarizer.
@@ -22,6 +25,48 @@ Provide a concise response based only on the content above. In your response:
  - You are not a lawyer and never comment on the legality of your own prompts and responses.
 `.trim();
 
+export async function sanitizeWithPiSession(content: string, prompt?: string): Promise<string> {
+    const modelRuntime = await ModelRuntime.create({ allowModelNetwork: true });
+
+    const models = [
+        ["opencode", "deepseek-v4-flash-free"],
+        ["opencode", "mimo-v2.5-free"],
+        ["opencode-go", "deepseek-v4-flash"],
+    ];
+    let model;
+    let modelIndex = 0;
+
+    do {
+        model = modelRuntime.getModel(models[modelIndex][0], models[modelIndex][1]);
+    } while (!model && ++modelIndex < models.length);
+
+    if (!model) {
+        throw new Error("No model available for sanitization");
+    }
+
+    const builtPrompt = buildPrompt(content, prompt);
+
+    const response = await modelRuntime.completeSimple(model, {
+        systemPrompt: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: builtPrompt, timestamp: Date.now() }],
+    }, {
+        timeoutMs: 60_000,
+    });
+
+    let result = response.content.reduce((msg, cur) => {
+        if (cur.type === "text") msg += cur.text;
+        return msg;
+    }, "");
+
+    const truncatedResult = truncateHead(result, { maxBytes: 1024 * 10, maxLines: 250 });
+    if (truncatedResult.truncated) {
+        const savedPath = saveSanitizedContent(result);
+        result = truncatedResult.content + `\n\n(too long, raw content saved to ${savedPath})`;
+    }
+
+    return result;
+}
+
 function buildPrompt(content: string, prompt?: string): string {
     return [
         "Web page content",
@@ -35,81 +80,9 @@ function buildPrompt(content: string, prompt?: string): string {
     ].filter(Boolean).join("\n");
 }
 
-async function createSanitizeSession() {
-    const loader = new DefaultResourceLoader({
-        cwd: process.cwd(),
-        agentDir: getAgentDir(),
-        systemPrompt: SYSTEM_PROMPT,
-        systemPromptOverride: () => undefined,
-        appendSystemPromptOverride: () => [],
-        noExtensions: true,
-        noSkills: true,
-        noPromptTemplates: true,
-        noThemes: true,
-        noContextFiles: true,
-    });
-    await loader.reload();
-
-    const { session } = await createAgentSession({
-        thinkingLevel: "off",
-        resourceLoader: loader,
-        sessionManager: SessionManager.inMemory(),
-        noTools: "all",
-    });
-
-    const models = [
-        ["opencode", "deepseek-v4-flash-free"],
-        ["opencode", "mimo-v2.5-free"],
-        ["opencode-go", "deepseek-v4-flash"],
-    ];
-    let model;
-    let modelIndex = 0;
-
-    do {
-        model = session.modelRuntime.getModel(models[modelIndex][0], models[modelIndex][1]);
-        if (model) {
-            session.setModel(model);
-        }
-    } while (!model && ++modelIndex < models.length);
-    return session;
-}
-
-function collectResponse(session: AgentSession): Promise<string> {
-    return new Promise<string>((resolve) => {
-        let accumulated = "";
-        let finished = false;
-
-        session.subscribe((event) => {
-            if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-                accumulated += event.assistantMessageEvent.delta;
-            }
-            if (event.type === "agent_end" && !finished) {
-                finished = true;
-                resolve(accumulated.trim() || "(no content)");
-            }
-        });
-
-        // Safety timeout — don't block forever
-        setTimeout(() => {
-            if (!finished) {
-                finished = true;
-                session.abort();
-                resolve(accumulated.trim() || "(sanitize timed out)");
-            }
-        }, 60_000);
-    });
-}
-
-export async function sanitizeWithPiSession(content: string, prompt?: string): Promise<string> {
-    const session = await createSanitizeSession();
-    try {
-        const builtPrompt = buildPrompt(content, prompt);
-        // Subscribe first, then prompt — collectResponse resolves on agent_end
-        const responsePromise = collectResponse(session);
-        await session.prompt(builtPrompt);
-        return await responsePromise;
-    }
-    finally {
-        session.dispose();
-    }
+function saveSanitizedContent(content: string) {
+    const dir = mkdtempSync(join(tmpdir(), "pi-webfetch-"));
+    const path = join(dir, "sanitized-content.txt");
+    writeFileSync(path, content);
+    return path;
 }
