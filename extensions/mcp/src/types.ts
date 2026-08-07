@@ -10,7 +10,7 @@ export interface McpServerConfig {
     /** Key/name of the server in the config file. */
     key: string;
     /** Human-readable name shown in the TUI. Defaults to `key`. */
-    label?: string;
+    label: string;
     /** Which transport family to use. */
     type: McpTransportType;
     /** stdio transport: command + args. */

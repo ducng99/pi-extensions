@@ -30,7 +30,7 @@ function missingEnvNote(cwd: string): string {
 }
 
 export function registerCommands(pi: ExtensionAPI, registry: Registry): void {
-    const commandNames = ["status", "connect", "disconnect", "reconnect", "login", "tools", "config"];
+    const commandNames = ["status", "connect", "disconnect", "reconnect", "tools"];
 
     pi.registerCommand("mcp", {
         description: "Inspect, connect, disconnect, or re-authenticate MCP servers",
@@ -44,15 +44,6 @@ export function registerCommands(pi: ExtensionAPI, registry: Registry): void {
             const servers = loadServers(ctx.cwd);
 
             switch (command) {
-                case undefined:
-                case "":
-                case "status":
-                case "list": {
-                    const note = missingEnvNote(ctx.cwd);
-                    ctx.ui.notify(statusTable(registry) + (note ? `\n\n${note}` : ""), "info");
-                    break;
-                }
-
                 case "connect": {
                     if (key) {
                         const cfg = servers.find(s => s.key === key);
@@ -79,8 +70,7 @@ export function registerCommands(pi: ExtensionAPI, registry: Registry): void {
                     break;
                 }
 
-                case "reconnect":
-                case "login": {
+                case "reconnect": {
                     if (!key) {
                         ctx.ui.notify("Usage: /mcp reconnect <server>   (triggers the OAuth flow when needed)", "error");
                         break;
@@ -108,9 +98,10 @@ export function registerCommands(pi: ExtensionAPI, registry: Registry): void {
                     break;
                 }
 
+                case "status":
                 default: {
-                    const lines = servers.map(s => `${s.key}: ${s.type} ${s.command ?? s.url ?? ""}`);
-                    ctx.ui.notify(lines.length ? lines.join("\n") : "No servers configured.", "info");
+                    const note = missingEnvNote(ctx.cwd);
+                    ctx.ui.notify(statusTable(registry) + (note ? `\n\n${note}` : ""), "info");
                     break;
                 }
             }

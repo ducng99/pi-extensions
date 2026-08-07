@@ -28,19 +28,23 @@ export default function mcpExtension(pi: ExtensionAPI): void {
     registerCommands(pi, registry);
     registerHelperTools(pi, registry);
 
-    pi.on("session_start", async (_event, ctx) => {
+    pi.on("resources_discover", async (_event, ctx) => {
         const statuses = await registry.connectAll(pi, ctx.cwd, { projectTrusted: ctx.isProjectTrusted() });
-        const connected = statuses.filter(s => s.connected).length;
+
+        pi.events.emit("mcp_status", statuses.map(s => ({
+            connected: s.connected,
+            name: s.server.label,
+            type: s.server.type,
+        })));
+
         if (ctx.hasUI) {
             const { missingEnv } = loadServersWithMissing(ctx.cwd);
             const missing = Object.entries(missingEnv)
                 .map(([server, vars]) => `${server}: ${vars.join(", ")}`)
                 .join("; ");
-            ctx.ui.notify(
-                `MCP: ${connected}/${statuses.length} server${statuses.length === 1 ? "" : "s"} connected`
-                + (missing ? ` — unset env vars (no default): ${missing}` : ""),
-                connected === statuses.length ? "info" : "warning",
-            );
+            if (missing) {
+                ctx.ui.notify(`unset env vars (no default): ${missing}`, "warning");
+            }
         }
     });
 

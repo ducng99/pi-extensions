@@ -2,10 +2,13 @@ import { DefaultResourceLoader, type Extension, type ExtensionContext, getAgentD
 import { type Component, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { relative } from "path";
 
+import type { McpServersStatus } from "../shared/utils/types";
+
 export function createHeader(
     ctx: ExtensionContext,
     theme: Theme,
     getFooterData: () => ReadonlyFooterDataProvider | null,
+    getMcpData: () => McpServersStatus[],
 ): Component {
     let skills: Skill[] = [];
     let extensions: Extension[] = [];
@@ -24,6 +27,8 @@ export function createHeader(
 
     return {
         render(width: number): string[] {
+            const mcpServersStatus = getMcpData();
+
             const lines = [
                 "",
                 `${theme.bold("Pi")} ${theme.fg("muted", "v" + VERSION)}`,
@@ -33,14 +38,18 @@ export function createHeader(
             if (ctx.ui.getToolsExpanded()) {
                 const skillsLines = wrapTextWithAnsi(skills.map(s => s.name).join(", "), width - 11 - 8);
                 const extensionsLines = wrapTextWithAnsi(extensions.filter(e => !e.hidden).map(compactExtensionLabel).join(", "), width - 11 - 12);
+                const mcpServersLines = wrapTextWithAnsi(mcpServersStatus.map(m => `${m.name} (${m.type})`).join(", "), width - 11 - 5);
 
-                lines.push(theme.fg("dim", "Skills: " + skillsLines[0]));
+                lines.push(theme.fg("dim", "Skills: " + (skillsLines[0] || "none")));
                 lines.push(...skillsLines.slice(1).map(line => theme.fg("dim", line)));
-                lines.push(theme.fg("dim", "Extensions: " + extensionsLines[0]));
+                lines.push(theme.fg("dim", "Extensions: " + (extensionsLines[0] || "none")));
                 lines.push(...extensionsLines.slice(1).map(line => theme.fg("dim", line)));
+                lines.push(theme.fg("dim", "MCP: " + (mcpServersLines[0] || "none")));
+                lines.push(...mcpServersLines.slice(1).map(line => theme.fg("dim", line)));
             }
             else {
-                lines.push(theme.fg("dim", `Skills: ${skills.length} · Extensions: ${extensions.length}`));
+                const mcpConnected = mcpServersStatus.filter(m => m.connected).length;
+                lines.push(theme.fg("dim", `Skills: ${skills.length} · Extensions: ${extensions.length} · MCP: ${mcpConnected}/${mcpServersStatus.length}`));
             }
 
             for (let i = 0; i < Math.max(5, lines.length); i++) {
@@ -62,14 +71,13 @@ export function createHeader(
 }
 
 function getLogo(line: number) {
-    if (line < 0 || line > 5) return "";
+    if (line < 0 || line >= 5) return " ".repeat(11);
     return [
         "           ",
         " ██████    ",
         " ██  ██    ",
         " ████  ██  ",
         " ██    ██  ",
-        "           ",
     ][line];
 }
 
@@ -108,29 +116,33 @@ function shortExtensionPath(extensionPath: string, baseDir: string | undefined):
     return extensionPath.replace(/\\/g, "/");
 }
 
+function compactParts(segments: string[]): string {
+    const parts = segments.slice();
+    const last = parts[parts.length - 1] ?? "";
+    if (last === "index.ts" || last === "index.js" || last === "index") {
+        parts.pop();
+    }
+    else {
+        parts[parts.length - 1] = last.replace(/\.(ts|js)$/, "");
+    }
+    return parts.filter(segment => segment.length > 0).join("/");
+}
+
 function compactExtensionLabel(extension: Extension): string {
     const sourceInfo = extension.sourceInfo;
+    const segments = shortExtensionPath(extension.path, sourceInfo.baseDir).split("/").filter(segment => segment.length > 0);
+    let relSegments = segments;
+    if (relSegments[0] === "extensions") {
+        relSegments = relSegments.slice(1);
+    }
     if (isPackageSource(sourceInfo)) {
         const sourceLabel = packageSourceLabel(sourceInfo);
         if (sourceLabel) {
-            let pkgPath = shortExtensionPath(extension.path, sourceInfo.baseDir);
-            if (pkgPath.startsWith("extensions/")) {
-                pkgPath = pkgPath.slice("extensions/".length);
-            }
-            const parts = pkgPath.split("/");
-            const last = parts[parts.length - 1] ?? "";
-            if (last === "index.ts" || last === "index.js" || last === "index") {
-                parts.pop();
-            }
-            else {
-                parts[parts.length - 1] = last.replace(/\.(ts|js)$/, "");
-            }
-            const subPath = parts.filter(segment => segment.length > 0).join("/");
+            const subPath = compactParts(relSegments);
             return subPath ? `${sourceLabel}:${subPath}` : sourceLabel;
         }
     }
-    const segments = shortExtensionPath(extension.path, sourceInfo.baseDir).split("/").filter(segment => segment.length > 0);
-    return segments[segments.length - 1] ?? extension.path;
+    return compactParts(relSegments) || extension.path;
 }
 
 function currentPath(cwd: string, theme: Theme, getFooterData: () => ReadonlyFooterDataProvider | null): string {
