@@ -60,6 +60,26 @@ function loadSubagentPermissionsFile(): LoadedSettings | null {
     }
 }
 
+// ============================================================================
+// Plan-mode permissions (set by the plan extension via the event bus)
+// ============================================================================
+
+let planModePermissions: ParsedPermissions | null = null;
+
+/**
+ * Set (or clear) the active plan-mode permission set. The plan extension emits
+ * `plan_mode:activated` / `plan_mode:deactivated` on the event bus; the tool
+ * permissions extension forwards those into here.
+ */
+export function setPlanModePermissions(permissions: ParsedPermissions | null): void {
+    planModePermissions = permissions;
+}
+
+function loadPlanModePermissions(): LoadedSettings | null {
+    if (!planModePermissions) return null;
+    return { permissions: planModePermissions, source: "plan-mode" };
+}
+
 export function collectAllSettings(cwd: string): ParsedPermissions[] {
     const all: ParsedPermissions[] = [];
 
@@ -96,6 +116,11 @@ export function collectAllSettings(cwd: string): ParsedPermissions[] {
     // precedence while still respecting deny > ask > allow within the merged set.
     const subagent = loadSubagentPermissionsFile();
     if (subagent) all.push(subagent.permissions);
+
+    // Plan-mode permissions (while /plan is active) are merged last too, so the
+    // plan-mode deny rules take precedence over the user's own settings.
+    const planMode = loadPlanModePermissions();
+    if (planMode) all.push(planMode.permissions);
 
     return all;
 }

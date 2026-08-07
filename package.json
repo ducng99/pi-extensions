@@ -16,7 +16,8 @@
       "./extensions/mcp/src/index.ts",
       "./extensions/my-theme/index.ts",
       "./extensions/file-rollback/index.ts",
-      "./extensions/session-namer/index.ts"
+      "./extensions/session-namer/index.ts",
+      "./extensions/plan/index.ts"
     ]
   },
   "module": "index.ts",

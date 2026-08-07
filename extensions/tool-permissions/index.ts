@@ -7,12 +7,17 @@
  * - claude settings.local.json (project-local, higher priority: .claude/settings.local.json)
  * - opencode.jsonc (global: ~/.config/opencode/opencode.jsonc)
  * - opencode.jsonc (project-local: .opencode/opencode.json[rc])
+ * - subagent permissions file (PI_SUBAGENT_PERMISSIONS_FILE)
+ * - plan-mode permissions (while the plan extension's /plan is active)
  *
  * Priority: If ANY claude settings exist, ONLY claude settings are used.
  * Claude and opencode settings are never merged together.
  * Within each format, settings are merged with deny > ask > allow priority.
  * If a tool is not in any list, it defaults to "ask".
  * edit and write tools are merged under the "edit" permission category.
+ *
+ * Plan-mode permissions are merged last (like the subagent file) so the
+ * plan-mode deny rules take precedence over the user's own settings.
  */
 
 import type { ExtensionAPI, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
@@ -21,12 +26,9 @@ import { initParser } from "../shared/bash-parser/index";
 import { type PermissionResult, PermissionSelector } from "../shared/tui-components/index";
 import { formatConfirmMessage } from "./src/confirmation-message";
 import { checkPermission, isMcpTool } from "./src/permission-check";
-import { collectAllSettings, mergePermissions } from "./src/settings-loading";
+import type { ParsedPermissions } from "./src/permission-parsing";
+import { collectAllSettings, mergePermissions, setPlanModePermissions } from "./src/settings-loading";
 import { TOOL_CATEGORY } from "./src/tool-categories";
-
-// ============================================================================
-// Parser Initialization
-// ============================================================================
 
 let parserInitialized = false;
 let initPromise: Promise<void> | null = null;
@@ -48,6 +50,15 @@ async function ensureParserInitialized(): Promise<void> {
 // ============================================================================
 
 export default function (pi: ExtensionAPI) {
+    // Forward plan-mode toggling from the plan extension (over the shared event
+    // bus) into the settings loader, which merges them like the subagent file.
+    pi.events.on("plan_mode:activated", (data) => {
+        setPlanModePermissions(data as ParsedPermissions);
+    });
+    pi.events.on("plan_mode:deactivated", () => {
+        setPlanModePermissions(null);
+    });
+
     // Initialize parser eagerly at startup
     ensureParserInitialized().catch((err) => {
         console.error("Failed to initialize tree-sitter parser:", err);

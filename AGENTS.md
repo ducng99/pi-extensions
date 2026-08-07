@@ -17,6 +17,7 @@ Pi coding agent extension project containing ten extensions and shared utilities
 - `extensions/prompt-arrow` — Custom editor component replacing the default `>` prompt with `❯`
 - `extensions/file-rollback` — Snapshots working directory state via a shadow git repo (`~/.pi/agent/file-rollback/<projectHash>/.git`), supports rolling back via `/tree`
 - `extensions/session-namer` — Auto-names sessions using a small dedicated model via a temporary isolated session
+- `extensions/plan` — `/plan [prompt]` plan mode: read-only session (read, bash allowlist, WritePlan/EditPlan) that writes a plan to `.pi/plans/<name>.md`, renders it, and prompts to implement (new session / same session) or update
 - `extensions/mcp` — MCP client: connects pi to external MCP servers (stdio + streamable HTTP) via the `@modelcontextprotocol/sdk`, exposing their tools/resources/prompts as pi tools, with full OAuth support
 - `extensions/shared/` — Reusable utilities:
   - `bash-parser` — Tree-sitter based bash command parser (requires WASM initialization via `initParser()`)
