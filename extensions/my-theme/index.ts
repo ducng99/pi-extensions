@@ -19,7 +19,7 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.setEditorComponent((tui, theme, kb) => new ArrowEditor(tui, theme, kb));
         ctx.ui.setFooter((_, theme, _footerData) => {
             footerData = _footerData;
-            return createFooter(ctx, theme);
+            return createFooter(ctx, theme, _footerData);
         });
     });
 

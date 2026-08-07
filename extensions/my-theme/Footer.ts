@@ -1,13 +1,13 @@
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ReadonlyFooterDataProvider, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-export function createFooter(ctx: ExtensionContext, theme: Theme): Component {
+export function createFooter(ctx: ExtensionContext, theme: Theme, footerData: ReadonlyFooterDataProvider): Component {
     return {
         invalidate() {},
 
         render(width: number): string[] {
-            const left = contextSection(ctx, theme);
-            const right = modelSection(ctx, theme);
+            const left = statusSection(footerData.getExtensionStatuses());
+            const right = modelSection(ctx, theme) + theme.fg("dim", " • ") + contextSection(ctx, theme);
 
             const leftWidth = visibleWidth(left);
             const rightWidth = visibleWidth(right);
@@ -18,6 +18,17 @@ export function createFooter(ctx: ExtensionContext, theme: Theme): Component {
             ];
         },
     };
+}
+
+function statusSection(statuses: ReadonlyMap<string, string>) {
+    let out = "";
+
+    for (const [, value] of statuses) {
+        if (out) out += " • ";
+        out += value;
+    }
+
+    return out;
 }
 
 function contextSection(ctx: ExtensionContext, theme: Theme): string {
