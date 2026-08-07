@@ -6,10 +6,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createAgentSession, DefaultResourceLoader, getAgentDir, SessionManager } from "@earendil-works/pi-coding-agent";
-import { mkdtemp, rm } from "fs/promises";
-import { tmpdir } from "os";
-import { join } from "path";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 const NAME_MODEL_PROVIDER = "llama.cpp";
 const NAME_MODEL_ID = "lfm";
@@ -20,11 +17,15 @@ type NameResult = {
 };
 
 async function generateName(prompt: string): Promise<NameResult> {
-    const tmpDir = await mkdtemp(join(tmpdir(), "pi-session-namer-"));
-    const loader = new DefaultResourceLoader({
-        cwd: tmpDir,
-        agentDir: getAgentDir(),
-        systemPrompt: `You are a title generator. You output ONLY a thread title. Nothing else.
+    try {
+        const modelRuntime = await ModelRuntime.create({ allowModelNetwork: true });
+        const dedicated = modelRuntime.getModel(NAME_MODEL_PROVIDER, NAME_MODEL_ID);
+        if (!dedicated) {
+            return { error: `Model "${NAME_MODEL_PROVIDER}/${NAME_MODEL_ID}" unavailable` };
+        }
+
+        const response = await modelRuntime.completeSimple(dedicated, {
+            systemPrompt: `You are a title generator. You output ONLY a thread title. Nothing else.
 
 <task>
 Generate a brief title that would help the user find this conversation later.
@@ -35,6 +36,7 @@ Your output must be:
 - A single line
 - <=50 characters
 - No explanations
+- No markdown, plain text only
 </task>
 
 <rules>
@@ -68,43 +70,12 @@ Your output must be:
 "look at @config.json" -> Config review
 "@App.tsx add dark mode toggle" -> Dark mode toggle in App
 </examples>`,
-        systemPromptOverride: () => undefined,
-        appendSystemPromptOverride: () => [],
-        noExtensions: true,
-        noSkills: true,
-        noPromptTemplates: true,
-        noThemes: true,
-        noContextFiles: true,
-    });
-    await loader.reload();
-
-    const { session } = await createAgentSession({
-        resourceLoader: loader,
-        thinkingLevel: "off",
-        sessionManager: SessionManager.inMemory(),
-        noTools: "all",
-    });
-
-    try {
-        const dedicated = session.modelRuntime.getModel(NAME_MODEL_PROVIDER, NAME_MODEL_ID);
-        if (dedicated) {
-            await session.setModel(dedicated);
-            session.setThinkingLevel("off");
-        }
-        else {
-            return { error: `Model "${NAME_MODEL_PROVIDER}/${NAME_MODEL_ID}" unavailable` };
-        }
-
-        let result = "";
-        session.subscribe((event) => {
-            if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-                result += event.assistantMessageEvent.delta;
-            }
+            messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
         });
-
-        await session.prompt(
-            `Generate a short session name (max 6 words) for this prompt:\n${prompt}`,
-        );
+        const result = response.content.reduce((msg, cur) => {
+            if (cur.type === "text") msg += cur.text;
+            return msg;
+        }, "");
 
         const name = result.trim().replace(/^["']|["']$/g, "");
         return { name: name };
@@ -112,10 +83,6 @@ Your output must be:
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return { error: `Failed to generate session name: ${message}` };
-    }
-    finally {
-        session.dispose();
-        await rm(tmpDir, { recursive: true });
     }
 }
 

@@ -14,8 +14,7 @@
       "./extensions/webfetch/index.ts",
       "./extensions/websearch/index.ts",
       "./extensions/mcp/src/index.ts",
-      "./extensions/footer/index.ts",
-      "./extensions/prompt-arrow/index.ts",
+      "./extensions/my-theme/index.ts",
       "./extensions/file-rollback/index.ts",
       "./extensions/session-namer/index.ts"
     ]

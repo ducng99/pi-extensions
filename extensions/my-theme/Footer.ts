@@ -1,27 +1,26 @@
-import type { ExtensionAPI, ExtensionContext, ReadonlyFooterDataProvider, Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { ExtensionContext, ReadonlyFooterDataProvider, Theme } from "@earendil-works/pi-coding-agent";
+import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-export default function (pi: ExtensionAPI) {
-    pi.on("session_start", async (_event, ctx) => {
-        ctx.ui.setFooter((_, theme, footerData) => ({
-            invalidate() {},
-            render(width: number): string[] {
-                const pwdLine = pathSection(ctx, theme, footerData);
+export function createFooter(ctx: ExtensionContext, theme: Theme, footerData: ReadonlyFooterDataProvider): Component {
+    return {
+        invalidate() {},
 
-                const left = contextSection(ctx, theme);
-                const right = modelSection(ctx, theme);
+        render(width: number): string[] {
+            const pwdLine = pathSection(ctx, theme, footerData);
 
-                const leftWidth = visibleWidth(left);
-                const rightWidth = visibleWidth(right);
-                const pad = " ".repeat(Math.max(1, width - leftWidth - rightWidth));
+            const left = contextSection(ctx, theme);
+            const right = modelSection(ctx, theme);
 
-                return [
-                    truncateToWidth(pwdLine, width),
-                    truncateToWidth(left + pad + right, width),
-                ];
-            },
-        }));
-    });
+            const leftWidth = visibleWidth(left);
+            const rightWidth = visibleWidth(right);
+            const pad = " ".repeat(Math.max(1, width - leftWidth - rightWidth));
+
+            return [
+                truncateToWidth(pwdLine, width),
+                truncateToWidth(left + pad + right, width),
+            ];
+        },
+    };
 }
 
 function pathSection(ctx: ExtensionContext, theme: Theme, footerData: ReadonlyFooterDataProvider): string {
