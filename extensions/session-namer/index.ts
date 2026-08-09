@@ -24,7 +24,7 @@ async function generateName(prompt: string): Promise<NameResult> {
             return { error: `Model "${NAME_MODEL_PROVIDER}/${NAME_MODEL_ID}" unavailable` };
         }
 
-        const response = await modelRuntime.completeSimple(dedicated, {
+        const response = await modelRuntime.complete(dedicated, {
             systemPrompt: `You are a title generator. You output ONLY a thread title. Nothing else.
 
 <task>
@@ -72,6 +72,11 @@ Your output must be:
 </examples>`,
             messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
         }, {
+            thinking: false,
+            reasoningEffort: "none",
+            reasoning: "minimal",
+            thinkingEnabled: false,
+            maxRetryDelayMs: 5000,
             timeoutMs: 10_000,
         });
 
