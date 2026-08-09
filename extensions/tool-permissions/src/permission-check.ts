@@ -1,5 +1,5 @@
 import { homedir } from "os";
-import { normalize, resolve } from "path";
+import { isAbsolute, normalize, relative, resolve, sep } from "path";
 
 import { parseBashCommand } from "../../shared/bash-parser/index";
 import { matchPattern } from "../../shared/pattern-matching/index";
@@ -17,7 +17,7 @@ function resolveDir(dir: string, cwd: string): string {
     if (dir === "~") {
         return normalize(homedir());
     }
-    if (dir.startsWith("~/")) {
+    if (dir.startsWith("~/") || dir.startsWith("~\\")) {
         return normalize(resolve(homedir(), dir.slice(2)));
     }
     return normalize(resolve(cwd, dir));
@@ -30,7 +30,7 @@ function resolveArgPath(path: string, cwd: string): string {
     if (path === "~") {
         return normalize(homedir());
     }
-    if (path.startsWith("~/")) {
+    if (path.startsWith("~/") || path.startsWith("~\\")) {
         return normalize(resolve(homedir(), path.slice(2)));
     }
     return normalize(resolve(cwd, path));
@@ -38,10 +38,19 @@ function resolveArgPath(path: string, cwd: string): string {
 
 /**
  * Check whether a resolved path is inside a given directory.
+ *
+ * Uses `path.relative` instead of raw prefix matching so it works with both
+ * `/` and `\` separators (Windows) and compares case-insensitively on Windows
+ * (e.g. `C:\Foo` vs `c:\foo`).
  */
 function isInsideDir(resolvedPath: string, dir: string): boolean {
     const normalizedDir = normalize(resolve(dir));
-    return resolvedPath === normalizedDir || resolvedPath.startsWith(normalizedDir + "/");
+    const rel = relative(normalizedDir, resolvedPath);
+    // Equal paths (or case-variant equal on Windows) → inside.
+    if (rel === "") return true;
+    // Escaping the dir yields `..` or `..<sep>...`; on Windows, paths on
+    // different drives yield an absolute relative path (e.g. `D:\...`).
+    return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
 /**
@@ -448,12 +457,16 @@ function isCommandOutOfBounds(
  * Check if a token looks like a file path.
  */
 function looksLikePath(token: string): boolean {
-    if (token.startsWith("/")) return true;
+    // POSIX absolute and root-relative; Windows drive-relative (`\foo`).
+    if (token.startsWith("/") || token.startsWith("\\")) return true;
     if (token.startsWith("~")) return true;
-    if (token.startsWith("./")) return true;
-    if (token.startsWith("../")) return true;
+    // POSIX and Windows relative (`.\`, `..\`).
+    if (token.startsWith("./") || token.startsWith(".\\")) return true;
+    if (token.startsWith("../") || token.startsWith("..\\")) return true;
     if (token === "." || token === "..") return true;
-    if (token.includes("/")) return true;
+    // Absolute Windows path with a drive letter, e.g. `C:\foo` or `C:/foo`.
+    if (/^[a-zA-Z]:[\\/]/.test(token)) return true;
+    if (token.includes("/") || token.includes("\\")) return true;
     return false;
 }
 
@@ -515,8 +528,9 @@ function extractRedirectionPaths(command: string): string[] {
 
         // Skip heredoc (<<) and here string (<<<)
         if (operator.startsWith("<<")) continue;
-        // Skip /dev/null and similar
+        // Skip /dev/null (POSIX) and NUL (Windows) null devices
         if (filePath === "/dev/null") continue;
+        if (/^nul:?$/i.test(filePath)) continue;
         // Skip file descriptors (e.g., 2>&1)
         if (/^&\d+$/.test(filePath)) continue;
         // Skip numeric-only targets (could be fd references)
