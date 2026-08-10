@@ -28,7 +28,7 @@ type ToolDef = {
 };
 
 function setupHarness() {
-    let activeTools = ["read", "bash", "grep", "find", "ls", "ask_user_questions", "edit", "write", "webfetch"];
+    let activeTools = ["read", "bash", "grep", "find", "ls", "ask_user_questions", "edit", "write", "webfetch", "websearch"];
     const tools = new Map<string, ToolDef>();
     const commands = new Map<string, { handler: (args: string, ctx: unknown) => void | Promise<void> }>();
     const listeners = new Map<string, (event: Record<string, unknown>, ctx: unknown) => void | Promise<void>>();
@@ -76,7 +76,7 @@ function setupHarness() {
         getActiveTools: () => activeTools,
         sessionStart: (cwd: string) => listeners.get("session_start")!({ type: "session_start", reason: "new" }, ctx(cwd)),
         executionEnd: (toolName: string, cwd: string) =>
-            listeners.get("tool_execution_end")!({ toolName }, ctx(cwd)),
+            listeners.get("tool_result")!({ toolName }, ctx(cwd)),
         selectCount: () => uiCalls.selects,
         executeTool: (name: string, params: unknown, cwd: string): Promise<PlanToolResult> => {
             const tool = tools.get(name);
@@ -117,7 +117,7 @@ describe("plan extension tools", () => {
         expect(await readFile(res.details.fullPath, "utf8")).toBe("one TWO three");
     });
 
-    test("tool_execution_end only prompts after write_plan/edit_plan", async () => {
+    test("tool_result only prompts after write_plan/edit_plan", async () => {
         const h = setupHarness();
         dir = await mkdtemp(join(tmpdir(), "plan-test-"));
         await h.togglePlan(dir);

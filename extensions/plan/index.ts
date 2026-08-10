@@ -26,7 +26,7 @@ import { EditPlanParams, WritePlanParams } from "./schema";
 // ============================================================================
 
 /** Tools available while plan mode is active. */
-const PLAN_TOOL_NAMES = new Set(["read", "bash", "grep", "find", "ls", "ask_user_questions", "write_plan", "edit_plan"]);
+const PLAN_TOOL_NAMES = new Set(["read", "bash", "grep", "find", "ls", "ask_user_questions", "webfetch", "websearch", "write_plan", "edit_plan"]);
 
 /** Plan tools whose completion should trigger the "what next?" prompt. */
 const PLAN_WRITE_TOOLS = new Set(["write_plan", "edit_plan"]);
@@ -140,12 +140,10 @@ export default function planExtension(pi: ExtensionAPI) {
     // No state persistence: every session starts with plan mode off.
     pi.on("session_start", (_event, ctx) => {
         if (planModeActive) deactivatePlanMode(ctx);
-        planModeActive = false;
-        toolsBeforePlanMode = [];
     });
 
     // After the plan is written or edited, offer next steps.
-    pi.on("tool_execution_end", async (event, ctx) => {
+    pi.on("tool_result", async (event, ctx) => {
         if (!planModeActive || !PLAN_WRITE_TOOLS.has(event.toolName) || !ctx.hasUI) return;
 
         const choice = await ctx.ui.select("Plan ready — what next?", [
