@@ -8,16 +8,10 @@
   },
   "pi": {
     "extensions": [
-      "./extensions/tool-permissions/index.ts",
-      "./extensions/ask-user-questions/index.ts",
-      "./extensions/subagent/index.ts",
-      "./extensions/webfetch/index.ts",
-      "./extensions/websearch/index.ts",
-      "./extensions/mcp/src/index.ts",
-      "./extensions/my-theme/index.ts",
-      "./extensions/file-rollback/index.ts",
-      "./extensions/session-namer/index.ts",
-      "./extensions/plan/index.ts"
+      "./extensions/"
+    ],
+    "prompts": [
+      "./prompts/"
     ]
   },
   "module": "index.ts",

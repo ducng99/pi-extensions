@@ -13,8 +13,7 @@ Pi coding agent extension project containing ten extensions and shared utilities
 - `extensions/subagent` — Spawns separate `pi` processes as specialized subagents with isolated context
 - `extensions/webfetch` — Fetches URLs, converts HTML→markdown via turndown, sanitizes through an isolated pi session
 - `extensions/websearch` — Web search via Ollama's API
-- `extensions/footer` — Renders custom footer with cwd, git branch, context usage, and model info
-- `extensions/prompt-arrow` — Custom editor component replacing the default `>` prompt with `❯`
+- `extensions/my-theme` — Custom theme with header, footer (cwd, git branch, context usage, model info), and arrow prompt editor component
 - `extensions/file-rollback` — Snapshots working directory state via a shadow git repo (`~/.pi/agent/file-rollback/<projectHash>/.git`), supports rolling back via `/tree`
 - `extensions/session-namer` — Auto-names sessions using a small dedicated model via a temporary isolated session
 - `extensions/plan` — `/plan [prompt]` plan mode: read-only session (read, bash allowlist, WritePlan/EditPlan) that writes a plan to `.pi/plans/<name>.md`, renders it, and prompts to implement (new session / same session) or update
@@ -25,6 +24,8 @@ Pi coding agent extension project containing ten extensions and shared utilities
   - `config-helpers` — Path helpers for claude/opencode config file locations
   - `jsonc-utils` — Strips JSONC comments
   - `pattern-matching` — Glob-style pattern matching with domain filtering support
+  - `web-content-cache` — Caches fetched web content
+  - `utils/` — General shared utilities
   - `test/` — Shared test utilities
 
 ## Development
