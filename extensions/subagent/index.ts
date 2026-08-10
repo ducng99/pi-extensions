@@ -15,9 +15,10 @@ import { SubagentParams } from "./schema";
 import type { BackgroundTaskInfo, SingleResult, SubagentDetails } from "./types";
 import { getFinalOutput, getResultOutput, isFailedResult } from "./utils";
 
-const MAX_TASK_STATUS_LENGTH = 100;
+const MAX_TASK_STATUS_LENGTH = 75;
 
 function truncateTaskForStatus(task: string, maxLength: number): string {
+    task = task.replace(/\r\n|\n/g, " ");
     if (task.length <= maxLength) return task;
     return task.slice(0, maxLength - 3) + "...";
 }

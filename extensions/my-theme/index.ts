@@ -28,4 +28,11 @@ export default function (pi: ExtensionAPI) {
         mcpServers.length = 0;
         mcpServers.push(..._data);
     });
+
+    pi.registerCommand("exit", {
+        description: "Alias for /quit",
+        async handler(_args, ctx) {
+            ctx.shutdown();
+        },
+    });
 }
