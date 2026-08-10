@@ -52,7 +52,7 @@ export function createHeader(
                 lines.push(theme.fg("dim", `Skills: ${skills.length} · Extensions: ${extensions.length} · MCP: ${mcpConnected}/${mcpServersStatus.length}`));
             }
 
-            for (let i = 0; i < Math.max(5, lines.length); i++) {
+            for (let i = 0; i < Math.max(6, lines.length); i++) {
                 if (i < lines.length) {
                     lines[i] = truncateToWidth(getLogo(i) + lines[i], width);
                 }
@@ -71,13 +71,14 @@ export function createHeader(
 }
 
 function getLogo(line: number) {
-    if (line < 0 || line >= 5) return " ".repeat(11);
+    if (line < 0 || line >= 6) return " ".repeat(11);
     return [
         "           ",
         " ██████    ",
         " ██  ██    ",
         " ████  ██  ",
         " ██    ██  ",
+        "           ",
     ][line];
 }
 
