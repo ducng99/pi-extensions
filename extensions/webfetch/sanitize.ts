@@ -26,42 +26,47 @@ Provide a response based only on the content above. In your response:
  - You are not a lawyer and never comment on the legality of your own prompts and responses.
 `.trim();
 
-export async function sanitizeWithPiSession(content: string, prompt?: string): Promise<string> {
-    const modelRuntime = await ModelRuntime.create();
+export async function sanitizeWithPiSession(content: string, prompt?: string, options?: { signal?: AbortSignal }): Promise<string> {
+    let result = content;
 
-    const models = [
-        ["opencode", "deepseek-v4-flash-free"],
-        ["opencode", "mimo-v2.5-free"],
-        ["opencode-go", "deepseek-v4-flash"],
-    ];
-    let model;
-    let modelIndex = 0;
+    if (prompt) {
+        const modelRuntime = await ModelRuntime.create();
 
-    do {
-        model = modelRuntime.getModel(models[modelIndex][0], models[modelIndex][1]);
-    } while (!model && ++modelIndex < models.length);
+        const models = [
+            ["opencode", "deepseek-v4-flash-free"],
+            ["opencode", "mimo-v2.5-free"],
+            ["opencode-go", "deepseek-v4-flash"],
+        ];
+        let model;
+        let modelIndex = 0;
 
-    if (!model) {
-        throw new Error("No model available for sanitization");
+        do {
+            model = modelRuntime.getModel(models[modelIndex][0], models[modelIndex][1]);
+        } while (!model && ++modelIndex < models.length);
+
+        if (!model) {
+            throw new Error("No model available for sanitization");
+        }
+
+        const builtPrompt = buildPrompt(content, prompt);
+
+        const response = await modelRuntime.complete(model, {
+            systemPrompt: SYSTEM_PROMPT,
+            messages: [{ role: "user", content: builtPrompt, timestamp: Date.now() }],
+        }, {
+            thinking: false,
+            reasoningEffort: "none",
+            reasoning: "minimal",
+            maxRetryDelayMs: 5000,
+            timeoutMs: 30_000,
+            signal: options?.signal,
+        });
+
+        result = response.content.reduce((msg, cur) => {
+            if (cur.type === "text") msg += cur.text;
+            return msg;
+        }, "");
     }
-
-    const builtPrompt = buildPrompt(content, prompt);
-
-    const response = await modelRuntime.complete(model, {
-        systemPrompt: SYSTEM_PROMPT,
-        messages: [{ role: "user", content: builtPrompt, timestamp: Date.now() }],
-    }, {
-        thinking: false,
-        reasoningEffort: "none",
-        reasoning: "minimal",
-        maxRetryDelayMs: 5000,
-        timeoutMs: 30_000,
-    });
-
-    let result = response.content.reduce((msg, cur) => {
-        if (cur.type === "text") msg += cur.text;
-        return msg;
-    }, "");
 
     const truncatedResult = truncateHead(result, { maxBytes: 1024 * 5, maxLines: 100 });
     if (truncatedResult.truncated) {

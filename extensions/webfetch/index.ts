@@ -159,9 +159,9 @@ Usage notes:
 
             // Pass 2: sanitize via pi session (single path for cache + network).
             try {
-                const sanitized = await sanitizeWithPiSession(markdown, params.prompt);
+                const result = await sanitizeWithPiSession(markdown, params.prompt, { signal });
                 return {
-                    content: [{ type: "text" as const, text: sanitized }],
+                    content: [{ type: "text" as const, text: result }],
                     details: {
                         url: params.url,
                         status,
