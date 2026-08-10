@@ -141,6 +141,56 @@ describe("checkPermission: non-bash tools unchanged", () => {
     });
 });
 
+describe("checkPermission: built-in ls/find/grep tools follow their bash-command rules", () => {
+    test("ls tool matches Bash(ls *) with a path", () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "ls *" }] });
+        const result = checkPermission("ls", { path: "src" }, perms);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("ls tool matches Bash(ls *) without a path", () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "ls *" }] });
+        const result = checkPermission("ls", {}, perms);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("ls tool asks when no Bash(ls *) rule exists", () => {
+        const perms = makePerms({});
+        const result = checkPermission("ls", { path: "src" }, perms);
+        expect(result.decision).toBe("ask");
+    });
+
+    test("find tool matches Bash(find *)", () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "find *" }] });
+        const result = checkPermission("find", { pattern: "**/*.ts", path: "src" }, perms);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("find tool with root path is denied by Bash(find / *)", () => {
+        const perms = makePerms({ deny: [{ category: "bash", pattern: "find / *" }] });
+        const result = checkPermission("find", { pattern: "*", path: "/" }, perms);
+        expect(result.decision).toBe("deny");
+    });
+
+    test("find tool with non-root path is not denied by Bash(find / *)", () => {
+        const perms = makePerms({ deny: [{ category: "bash", pattern: "find / *" }] });
+        const result = checkPermission("find", { pattern: "**/*.ts", path: "src" }, perms);
+        expect(result.decision).toBe("ask");
+    });
+
+    test("grep tool is allowed by the Grep rule", () => {
+        const perms = makePerms({ allow: [{ category: "grep", pattern: "*" }] });
+        const result = checkPermission("grep", { pattern: "TODO", path: "src" }, perms);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("grep tool searching for .env is denied by Grep(.env)", () => {
+        const perms = makePerms({ deny: [{ category: "grep", pattern: ".env" }] });
+        const result = checkPermission("grep", { pattern: ".env" }, perms);
+        expect(result.decision).toBe("deny");
+    });
+});
+
 describe("checkPermission: default allowed tools", () => {
     test("allows ask_user_questions by default with no rules", () => {
         const perms = makePerms({});

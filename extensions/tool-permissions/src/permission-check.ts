@@ -99,16 +99,22 @@ function buildArgString(toolName: string, input: Record<string, unknown>): strin
             return parts.join(" ");
         }
         case "find": {
+            // Represent as the equivalent bash command `find <path> <pattern>`
+            // (path first, like `find / -name ...`), so rules such as
+            // `Bash(find *)` and `Bash(find / *)` apply to the find tool too.
             const pattern = input.pattern ?? "";
             const path = input.path ?? "";
-            const parts: string[] = [];
-            if (typeof pattern === "string" && pattern) parts.push(pattern);
+            const parts: string[] = ["find"];
             if (typeof path === "string" && path) parts.push(path);
+            if (typeof pattern === "string" && pattern) parts.push(pattern);
             return parts.join(" ");
         }
         case "ls": {
+            // Represent as the equivalent bash command `ls <path>`, so rules
+            // such as `Bash(ls *)` apply to the ls tool too.
             const path = input.path ?? "";
-            return typeof path === "string" ? path : "";
+            const suffix = typeof path === "string" && path ? ` ${path}` : "";
+            return `ls${suffix}`;
         }
         case "webfetch": {
             const url = input.url;

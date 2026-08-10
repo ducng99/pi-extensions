@@ -12,8 +12,8 @@ export const TOOL_CATEGORY: Record<string, string> = {
     ls: "bash",
     subagent: "subagent",
     ask_user_questions: "ask_user_questions",
-    webfetch: "webtools",
-    websearch: "webtools",
+    webfetch: "webfetch",
+    websearch: "websearch",
 };
 
 // ============================================================================
