@@ -57,13 +57,17 @@ function setupHarness() {
 
     planExtension(fakePi as never);
 
+    const uiCalls = { selects: 0 };
     const ctx = (cwd: string) => ({
         cwd,
         hasUI: true,
         abort: () => {},
         ui: {
             notify: () => {},
-            select: () => Promise.resolve("Chat more — stay in plan mode and keep chatting"),
+            select: () => {
+                uiCalls.selects++;
+                return Promise.resolve("Chat more — stay in plan mode and keep chatting");
+            },
         },
     });
 
@@ -71,6 +75,9 @@ function setupHarness() {
         togglePlan: (cwd: string) => commands.get("plan")!.handler("", ctx(cwd)),
         getActiveTools: () => activeTools,
         sessionStart: (cwd: string) => listeners.get("session_start")!({ type: "session_start", reason: "new" }, ctx(cwd)),
+        executionEnd: (toolName: string, cwd: string) =>
+            listeners.get("tool_execution_end")!({ toolName }, ctx(cwd)),
+        selectCount: () => uiCalls.selects,
         executeTool: (name: string, params: unknown, cwd: string): Promise<PlanToolResult> => {
             const tool = tools.get(name);
             if (!tool) throw new Error(`tool ${name} not registered`);
@@ -90,7 +97,7 @@ describe("plan extension tools", () => {
         if (dir) await rm(dir, { recursive: true, force: true });
     });
 
-    test("write_plan creates the plan file", async () => {
+    test("write_plan delegates filename/content to pi's write tool and creates the plan file", async () => {
         const h = setupHarness();
         dir = await mkdtemp(join(tmpdir(), "plan-test-"));
         await h.togglePlan(dir);
@@ -100,25 +107,31 @@ describe("plan extension tools", () => {
         expect(await readFile(res.details.fullPath, "utf8")).toBe("# Plan\n\ndo things");
     });
 
-    test("edit_plan replaces the first occurrence", async () => {
+    test("edit_plan delegates old_text/new_text to pi's edit tool and returns updated content", async () => {
         const h = setupHarness();
         dir = await mkdtemp(join(tmpdir(), "plan-test-"));
         await h.togglePlan(dir);
-        await h.executeTool("write_plan", { filename: "plan", content: "one two two" }, dir);
+        await h.executeTool("write_plan", { filename: "plan", content: "one two three" }, dir);
 
         const res = await h.executeTool("edit_plan", { filename: "plan", old_text: "two", new_text: "TWO" }, dir);
-        expect(await readFile(res.details.fullPath, "utf8")).toBe("one TWO two");
+        expect(await readFile(res.details.fullPath, "utf8")).toBe("one TWO three");
     });
 
-    test("edit_plan errors (isError) when old_text is missing", async () => {
+    test("tool_execution_end only prompts after write_plan/edit_plan", async () => {
         const h = setupHarness();
         dir = await mkdtemp(join(tmpdir(), "plan-test-"));
         await h.togglePlan(dir);
-        await h.executeTool("write_plan", { filename: "plan", content: "hello" }, dir);
 
-        await expect(
-            h.executeTool("edit_plan", { filename: "plan", old_text: "NOPE", new_text: "x" }, dir),
-        ).rejects.toThrow();
+        // Read-only and exploration tools must NOT trigger the prompt.
+        for (const toolName of ["read", "bash", "grep", "find", "ls", "ask_user_questions"]) {
+            await h.executionEnd(toolName, dir);
+        }
+        expect(h.selectCount()).toBe(0);
+
+        // Only write_plan / edit_plan should prompt.
+        await h.executionEnd("write_plan", dir);
+        await h.executionEnd("edit_plan", dir);
+        expect(h.selectCount()).toBe(2);
     });
 
     test("no state persistence: session_start resets plan mode and restores tools", async () => {

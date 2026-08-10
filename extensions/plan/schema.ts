@@ -20,7 +20,7 @@ export const EditPlanParams = Type.Object({
         minLength: 1,
     }),
     old_text: Type.String({
-        description: "Exact text to locate; the first occurrence is replaced",
+        description: "Exact text to locate; must match exactly once or the edit is refused",
     }),
     new_text: Type.String({
         description: "Replacement text for the located `old_text`",

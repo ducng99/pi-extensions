@@ -13,8 +13,8 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { CONFIG_DIR_NAME, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { CONFIG_DIR_NAME, createEditToolDefinition, createWriteToolDefinition } from "@earendil-works/pi-coding-agent";
+import { readFile } from "fs/promises";
 import { join } from "path";
 
 import type { ParsedPermissions } from "../tool-permissions/src/permission-parsing";
@@ -27,6 +27,9 @@ import { EditPlanParams, WritePlanParams } from "./schema";
 
 /** Tools available while plan mode is active. */
 const PLAN_TOOL_NAMES = new Set(["read", "bash", "grep", "find", "ls", "ask_user_questions", "write_plan", "edit_plan"]);
+
+/** Plan tools whose completion should trigger the "what next?" prompt. */
+const PLAN_WRITE_TOOLS = new Set(["write_plan", "edit_plan"]);
 
 /**
  * Plan-mode permission set emitted so tool-permissions can gate plan-mode tool
@@ -71,6 +74,8 @@ export const PLAN_MODE_PERMISSIONS: ParsedPermissions = {
         // Package managers / build tools
         { category: "bash", pattern: "npm install *" },
         { category: "bash", pattern: "npm run *" },
+        { category: "bash", pattern: "pnpm install *" },
+        { category: "bash", pattern: "pnpm run *" },
         { category: "bash", pattern: "bun install *" },
         { category: "bash", pattern: "bun run *" },
         { category: "bash", pattern: "yarn *" },
@@ -95,15 +100,6 @@ function normalizePlanFilename(filename: string): string {
 
 function plansDir(cwd: string): string {
     return join(cwd, CONFIG_DIR_NAME, "plans");
-}
-
-async function readPlanOrThrow(fullPath: string, filename: string): Promise<string> {
-    try {
-        return await readFile(fullPath, "utf8");
-    }
-    catch {
-        throw new Error(`Plan file not found: ${filename}`);
-    }
 }
 
 // ============================================================================
@@ -148,9 +144,9 @@ export default function planExtension(pi: ExtensionAPI) {
         toolsBeforePlanMode = [];
     });
 
-    // After a plan tool finishes, offer next steps.
+    // After the plan is written or edited, offer next steps.
     pi.on("tool_execution_end", async (event, ctx) => {
-        if (!planModeActive || !PLAN_TOOL_NAMES.has(event.toolName) || !ctx.hasUI) return;
+        if (!planModeActive || !PLAN_WRITE_TOOLS.has(event.toolName) || !ctx.hasUI) return;
 
         const choice = await ctx.ui.select("Plan ready — what next?", [
             "Implement now — exit plan mode and continue working",
@@ -199,8 +195,17 @@ export default function planExtension(pi: ExtensionAPI) {
             const dir = plansDir(ctx.cwd);
             const fullPath = join(dir, filename);
 
-            await mkdir(dir, { recursive: true });
-            await writeFile(fullPath, params.content, "utf8");
+            // Delegate to pi's built-in write tool instead of hand-rolling the
+            // fs calls: it creates parent directories, serializes through the
+            // file mutation queue, and observes abort signals.
+            const writeToolDef = createWriteToolDefinition(ctx.cwd);
+            await writeToolDef.execute(
+                "write_plan",
+                { path: fullPath, content: params.content },
+                _signal,
+                undefined,
+                ctx,
+            );
 
             return {
                 content: [{ type: "text", text: params.content }],
@@ -214,11 +219,11 @@ export default function planExtension(pi: ExtensionAPI) {
     pi.registerTool({
         name: "edit_plan",
         label: "Edit Plan",
-        description: "Edit an existing plan markdown file under .pi/plans by replacing the first occurrence of old_text with new_text. Errors if old_text is not found.",
+        description: "Edit an existing plan markdown file under .pi/plans by replacing old_text with new_text. Errors if old_text is not found, or if it matches more than once (ambiguous — refuses to edit).",
         promptSnippet: "Edit an existing plan markdown file under .pi/plans",
         promptGuidelines: [
             "Use edit_plan (not edit/write) to update a plan file while plan mode is active.",
-            "old_text must match exactly; replace the first occurrence only.",
+            "old_text must match exactly and appear exactly once in the file; if it matches multiple times, edit_plan refuses to edit, so make old_text more specific.",
         ],
         parameters: EditPlanParams,
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -232,20 +237,24 @@ export default function planExtension(pi: ExtensionAPI) {
             const filename = normalizePlanFilename(params.filename);
             const fullPath = join(plansDir(ctx.cwd), filename);
 
-            return withFileMutationQueue(fullPath, async () => {
-                const current = await readPlanOrThrow(fullPath, filename);
-                const idx = current.indexOf(params.old_text);
-                if (idx === -1) {
-                    throw new Error(`old_text not found in ${filename}`);
-                }
-                const updated = current.slice(0, idx) + params.new_text + current.slice(idx + params.old_text.length);
-                await writeFile(fullPath, updated, "utf8");
+            // Delegate to pi's built-in edit tool instead of hand-rolling text
+            // matching: it errors on missing or ambiguous (non-unique) old_text,
+            // preserves BOM and line endings, handles empty old_text, and
+            // serializes the write through the file mutation queue.
+            const editToolDef = createEditToolDefinition(ctx.cwd);
+            await editToolDef.execute(
+                "edit_plan",
+                { path: fullPath, edits: [{ oldText: params.old_text, newText: params.new_text }] },
+                _signal,
+                undefined,
+                ctx,
+            );
 
-                return {
-                    content: [{ type: "text", text: updated }],
-                    details: { filename, fullPath },
-                };
-            });
+            const updated = await readFile(fullPath, "utf8");
+            return {
+                content: [{ type: "text", text: updated }],
+                details: { filename, fullPath },
+            };
         },
         renderCall: renderCall,
         renderResult: renderResult,
