@@ -15,9 +15,26 @@ import { WebSearchParams } from "./schema";
 function formatResults(data: WebSearchResponse): string {
     const lines = data.results.map((r, i) => {
         const title = r.title || "(no title)";
-        return `${i + 1}. ${title}\n    ${r.url}\n    ${truncateHead(r.content, { maxLines: 5, maxBytes: 1024 }).content}`;
+
+        let content = r.content;
+        const truncatedContent = truncateHead(r.content, { maxLines: 20, maxBytes: 1024 });
+        if (truncatedContent.truncated) {
+            content = truncatedContent.content + " ...(truncated, fetch the URL using webfetch to get full content)";
+        }
+
+        return `
+## Result ${i + 1}
+
+Title: ${title}
+URL: ${r.url}
+Content:
+\`\`\`
+${content}
+\`\`\`
+`.trim();
     });
-    return lines.length > 0 ? lines.join("\n\n") : "No results found.";
+
+    return lines.length > 0 ? lines.join("\n\n---\n\n") : "No results found.";
 }
 
 export default function websearchTool(pi: ExtensionAPI) {
