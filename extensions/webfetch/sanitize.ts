@@ -68,7 +68,7 @@ export async function sanitizeWithPiSession(content: string, prompt?: string, op
         }, "");
     }
 
-    const truncatedResult = truncateHead(result, { maxBytes: 1024 * 5, maxLines: 100 });
+    const truncatedResult = truncateHead(result, { maxBytes: 1024 * 2, maxLines: 50 });
     if (truncatedResult.truncated) {
         const savedPath = saveSanitizedContent(result);
         result = truncatedResult.content + `\n\n...(too long, raw content saved to ${savedPath})`;
