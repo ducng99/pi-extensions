@@ -9,13 +9,13 @@ import { SnapshotStore } from "../src/snapshots";
 
 interface MockUi {
     notify: ReturnType<typeof mock>;
-    confirm: ReturnType<typeof mock>;
+    select: ReturnType<typeof mock>;
 }
 
-function makeCtx(overrides: { confirmResult?: boolean; getEntry?: (id: string) => unknown } = {}) {
+function makeCtx(overrides: { selectResult?: string; getEntry?: (id: string) => unknown } = {}) {
     const ui: MockUi = {
         notify: mock(() => {}),
-        confirm: mock(async () => overrides.confirmResult ?? true),
+        select: mock(async () => ("selectResult" in overrides ? overrides.selectResult : "Yes — restore files") as string),
     };
     const ctx = {
         ui,
@@ -103,14 +103,14 @@ describe("checkRestore", () => {
         fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    test("returns true when no snapshot exists", async () => {
+    test("returns 'yes' when no snapshot exists", async () => {
         const store = await makeStore(tmpDir);
         const { ctx } = makeCtx();
-        const allowed = await checkRestore("no-snapshot-entry", store, store.config, ctx);
-        expect(allowed).toBe(true);
+        const action = await checkRestore("no-snapshot-entry", store, store.config, ctx);
+        expect(action).toBe("yes");
     });
 
-    test("returns true and no dialog when restore is a no-op", async () => {
+    test("returns 'yes' and no dialog when restore is a no-op", async () => {
         writeFile(tmpDir, "a.txt", "v1");
         await runGit(tmpDir, ["add", "a.txt"]);
         await runGit(tmpDir, ["commit", "-m", "init"]);
@@ -123,12 +123,12 @@ describe("checkRestore", () => {
         // Revert back to "v2" (current state) - no-op.
         writeFile(tmpDir, "a.txt", "v2");
         const { ctx, ui } = makeCtx();
-        const allowed = await checkRestore("entry-1", store, store.config, ctx);
-        expect(allowed).toBe(true);
-        expect(ui.confirm).not.toHaveBeenCalled();
+        const action = await checkRestore("entry-1", store, store.config, ctx);
+        expect(action).toBe("yes");
+        expect(ui.select).not.toHaveBeenCalled();
     });
 
-    test("asks for confirmation with preview when restore changes files", async () => {
+    test("asks for selection with preview when restore changes files", async () => {
         writeFile(tmpDir, "a.txt", "v1");
         await runGit(tmpDir, ["add", "a.txt"]);
         await runGit(tmpDir, ["commit", "-m", "init"]);
@@ -140,12 +140,12 @@ describe("checkRestore", () => {
 
         writeFile(tmpDir, "a.txt", "v3");
         const { ctx, ui } = makeCtx();
-        const allowed = await checkRestore("entry-1", store, store.config, ctx);
-        expect(ui.confirm).toHaveBeenCalled();
-        expect(allowed).toBe(true);
+        const action = await checkRestore("entry-1", store, store.config, ctx);
+        expect(ui.select).toHaveBeenCalled();
+        expect(action).toBe("yes");
     });
 
-    test("returns false when user declines confirmation", async () => {
+    test("returns 'no' when user selects keep current files", async () => {
         writeFile(tmpDir, "a.txt", "v1");
         await runGit(tmpDir, ["add", "a.txt"]);
         await runGit(tmpDir, ["commit", "-m", "init"]);
@@ -156,9 +156,25 @@ describe("checkRestore", () => {
         await store.createSnapshot("entry-1", makeCtx().ctx);
 
         writeFile(tmpDir, "a.txt", "v3");
-        const { ctx } = makeCtx({ confirmResult: false });
-        const allowed = await checkRestore("entry-1", store, store.config, ctx);
-        expect(allowed).toBe(false);
+        const { ctx } = makeCtx({ selectResult: "No — keep current files" });
+        const action = await checkRestore("entry-1", store, store.config, ctx);
+        expect(action).toBe("no");
+    });
+
+    test("returns 'cancel' when user presses Esc", async () => {
+        writeFile(tmpDir, "a.txt", "v1");
+        await runGit(tmpDir, ["add", "a.txt"]);
+        await runGit(tmpDir, ["commit", "-m", "init"]);
+
+        const store = await makeStore(tmpDir);
+        await store.ensureInitial(makeCtx().ctx);
+        writeFile(tmpDir, "a.txt", "v2");
+        await store.createSnapshot("entry-1", makeCtx().ctx);
+
+        writeFile(tmpDir, "a.txt", "v3");
+        const { ctx } = makeCtx({ selectResult: undefined as unknown as string });
+        const action = await checkRestore("entry-1", store, store.config, ctx);
+        expect(action).toBe("cancel");
     });
 });
 

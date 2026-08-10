@@ -12,27 +12,31 @@ import * as path from "path";
 import { gitShadow, type ShadowGitConfig, withRepoLock } from "./shadow-git";
 import type { SnapshotStore } from "./snapshots";
 
+export type RestoreAction = "yes" | "no" | "cancel";
+
 /**
  * Check whether restoring to a snapshot would change the working tree, and
- * prompt the user when it would. Returns true to proceed, false to cancel.
+ * prompt the user when it would. Returns "yes" to proceed with restore,
+ * "no" to skip the restore but continue navigation, or "cancel" to abort
+ * the tree navigation entirely.
  */
 export async function checkRestore(
     targetId: string,
     snapshotStore: SnapshotStore,
     config: ShadowGitConfig,
     ctx: ExtensionContext,
-): Promise<boolean> {
+): Promise<RestoreAction> {
     const snapshot = await snapshotStore.findSnapshot(targetId, ctx);
     if (!snapshot) {
-        return true;
+        return "yes";
     }
 
     const diff = await gitShadow(config.shadowDir, config.cwd, ["diff", "--quiet", snapshot, "--", "."], ctx);
     if (diff.ok) {
-        return true;
+        return "yes";
     }
     if (diff.exitCode !== 1) {
-        return true;
+        return "yes";
     }
 
     // Get a short stat preview for the confirmation dialog.
@@ -59,12 +63,16 @@ export async function checkRestore(
         stats = `\n\n${files} file${files === 1 ? "" : "s"}, +${additions} −${deletions}`;
     }
 
-    const confirmed = await ctx.ui.confirm(
-        "Restore files?",
-        `Files will be reverted to the state at this conversation point.${stats}\n\nContinue?`,
+    const result = await ctx.ui.select(
+        "Restore files?" + stats,
+        [
+            "Yes — restore files",
+            "No — keep current files",
+        ],
     );
 
-    return confirmed;
+    if (result === undefined) return "cancel";
+    return result.startsWith("Yes") ? "yes" : "no";
 }
 
 /**

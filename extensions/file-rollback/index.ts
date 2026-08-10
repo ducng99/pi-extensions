@@ -205,10 +205,12 @@ export default function fileRollbackExtension(pi: ExtensionAPI) {
         if (!state) return;
 
         const targetId = event.preparation.targetId;
-        const allowed = await checkRestore(targetId, state.snapshots, state.config, ctx);
-        if (!allowed) {
+        const action = await checkRestore(targetId, state.snapshots, state.config, ctx);
+        if (action === "cancel") {
             return { cancel: true };
         }
+        // "no" → skip restore, tree navigation continues
+        // "yes" → session_tree handler will restore files
     });
 
     pi.on("session_tree", async (event: SessionTreeEvent, ctx: ExtensionContext) => {
