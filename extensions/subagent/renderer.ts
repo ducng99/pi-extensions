@@ -65,8 +65,8 @@ export function renderResult(
 
     if (details.mode === "background" && details.backgroundTasks && details.backgroundTasks.length > 0) {
         const bg = details.backgroundTasks;
-        const icon = theme.fg("success", "✓");
-        let text = `${icon} ${theme.fg("toolTitle", theme.bold("background "))}${theme.fg("accent", "started")}`;
+        const icon = theme.fg("accent", "▶");
+        let text = `${icon} ${theme.fg("toolTitle", theme.bold("background started"))}`;
         for (const task of bg) {
             text += `\n${theme.fg("muted", "─── ")}${theme.fg("accent", task.agent)} ${theme.fg("dim", task.backgroundId)}`;
             text += `\n${theme.fg("muted", "Output: ")}${theme.fg("dim", task.outputPath)}`;

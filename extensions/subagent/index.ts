@@ -24,7 +24,7 @@ function truncateTaskForStatus(task: string, maxLength: number): string {
 }
 
 export default function subagentExtension(pi: ExtensionAPI) {
-    const backgroundAgents = new Map<string, { agent: string; task: string; statusKey: string }>();
+    const backgroundAgents = new Map<string, { agent: string; task: string }>();
 
     function updateBackgroundWidget(ui: ExtensionUIContext) {
         const WIDGET_KEY = "my-subagent-widget";
@@ -44,7 +44,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
         const discovery = discoverAgents(ctx.cwd);
         const agents = discovery.agents;
         if (agents.length === 0) return;
-        const list = agents.map(a => `  - ${a.name}: ${a.description}`).join("\n");
+        const list = agents.map(a => `- ${a.name}: ${a.description}`).join("\n");
         pi.sendMessage({
             customType: "subagent-available-agents",
             content: `Available subagents:\n${list}`,
@@ -153,15 +153,15 @@ paths, line numbers, what specifically to change.
                         isError: true,
                     };
                 }
-                const statusKey = `subagent-bg-${bg.backgroundId}`;
+
                 const theme = ctx.ui.theme;
-                backgroundAgents.set(bg.backgroundId, { agent: bg.agent, task: bg.task, statusKey });
+                backgroundAgents.set(bg.backgroundId, { agent: bg.agent, task: bg.task });
                 updateBackgroundWidget(ctx.ui);
+
                 bg.done.then(async ({ exitCode }) => {
                     const icon = exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
-                    backgroundAgents.delete(bg.backgroundId);
+                    setTimeout(() => backgroundAgents.delete(bg.backgroundId), 10000);
                     updateBackgroundWidget(ctx.ui);
-                    setTimeout(() => ctx.ui.setStatus(statusKey, undefined), 10_000);
 
                     // Read output and notify user (small delay to ensure file is flushed)
                     await new Promise(resolve => setTimeout(resolve, 100));
@@ -170,6 +170,7 @@ paths, line numbers, what specifically to change.
                         const lines = output.split("\n").filter(l => l.trim());
                         let resultText = "";
                         let errorText = "";
+
                         for (const line of lines) {
                             try {
                                 const event = JSON.parse(line);
@@ -183,6 +184,7 @@ paths, line numbers, what specifically to change.
                                                 }
                                             }
                                         }
+
                                         // Get error from toolResult messages - check both msg.isError and content isError
                                         const isError = msg.isError === true || (Array.isArray(msg.content) && msg.content.some((p: { isError: boolean }) => p.isError === true));
                                         if (msg.role === "toolResult" && Array.isArray(msg.content) && isError) {
@@ -193,6 +195,7 @@ paths, line numbers, what specifically to change.
                                             }
                                         }
                                     }
+
                                     // Check stopReason of last assistant message
                                     const lastMsg = event.messages[event.messages.length - 1];
                                     if (lastMsg?.role === "assistant" && lastMsg.stopReason && lastMsg.stopReason !== "endTurn") {
@@ -202,14 +205,16 @@ paths, line numbers, what specifically to change.
                             }
                             catch { /* ignore parse errors */ }
                         }
+
                         const status = exitCode === 0 ? "completed" : `failed (exit ${exitCode})`;
                         let outputText = resultText;
                         if (!outputText && errorText) outputText = errorText;
                         if (!outputText) outputText = "(no output)";
+
                         pi.sendMessage({
                             customType: "subagent-bg-result",
-                            content: `${icon} ${bg.agent} ${status}: ${outputText}`,
-                            display: false,
+                            content: `${icon} ${bg.agent} ${status}:\n${outputText}`,
+                            display: true,
                         }, {
                             triggerTurn: true,
                             deliverAs: "steer",
@@ -220,13 +225,14 @@ paths, line numbers, what specifically to change.
                         pi.sendMessage({
                             customType: "subagent-bg-result",
                             content: `${icon} ${bg.agent} ${status}`,
-                            display: false,
+                            display: true,
                         }, {
                             triggerTurn: true,
                             deliverAs: "steer",
                         });
                     }
                 });
+
                 // Strip the 'done' Promise before including in details to avoid cloning errors
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { done: _, ...bgInfo } = bg;
