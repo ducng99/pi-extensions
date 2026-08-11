@@ -16,11 +16,8 @@ import type {
     ExtensionAPI,
     ExtensionContext,
     SessionBeforeTreeEvent,
-    SessionShutdownEvent,
-    SessionStartEvent,
     SessionTreeEvent,
     ToolExecutionEndEvent,
-    ToolExecutionStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import * as fs from "fs";
 import * as path from "path";
@@ -44,6 +41,12 @@ interface ExtensionState {
     config: ShadowGitConfig;
     snapshots: SnapshotStore;
     gcInterval?: ReturnType<typeof setInterval>;
+    /**
+     * True when the user declined file restore ("No — keep current files")
+     * for the pending tree navigation. Consumed by the next session_tree
+     * event, which would otherwise restore files unconditionally.
+     */
+    skipRestorePending: boolean;
 }
 
 /**
@@ -132,7 +135,7 @@ async function runGc(state: ExtensionState, ctx: ExtensionContext): Promise<void
 }
 
 export default function fileRollbackExtension(pi: ExtensionAPI) {
-    pi.on("session_start", async (event: SessionStartEvent, ctx: ExtensionContext) => {
+    pi.on("session_start", async (_event, ctx) => {
         const source = await findSourceRepo(ctx.cwd);
         if (!source) {
             // Extension is disabled when the project is not a git repo.
@@ -166,10 +169,10 @@ export default function fileRollbackExtension(pi: ExtensionAPI) {
         }, 60 * 60 * 1000);
         gcInterval.unref?.();
 
-        stateMap.set(sessionId, { config, snapshots, gcInterval });
+        stateMap.set(sessionId, { config, snapshots, gcInterval, skipRestorePending: false });
     });
 
-    pi.on("session_shutdown", (event: SessionShutdownEvent, ctx: ExtensionContext) => {
+    pi.on("session_shutdown", (_, ctx) => {
         const state = getState(ctx.sessionManager.getSessionId());
         if (state?.gcInterval) {
             clearInterval(state.gcInterval);
@@ -177,7 +180,7 @@ export default function fileRollbackExtension(pi: ExtensionAPI) {
         stateMap.delete(ctx.sessionManager.getSessionId());
     });
 
-    pi.on("tool_execution_start", async (event: ToolExecutionStartEvent, ctx: ExtensionContext) => {
+    pi.on("tool_execution_start", async (_, ctx) => {
         const state = getState(ctx.sessionManager.getSessionId());
         if (!state) return;
 
@@ -204,18 +207,33 @@ export default function fileRollbackExtension(pi: ExtensionAPI) {
         const state = getState(ctx.sessionManager.getSessionId());
         if (!state) return;
 
+        // Navigation is sequential, so any pending decision belongs to a
+        // previous navigation that was aborted (e.g. summarization cancelled)
+        // and never reached session_tree. Discard it before prompting again.
+        state.skipRestorePending = false;
+
         const targetId = event.preparation.targetId;
         const action = await checkRestore(targetId, state.snapshots, state.config, ctx);
         if (action === "cancel") {
             return { cancel: true };
         }
-        // "no" → skip restore, tree navigation continues
+        if (action === "no") {
+            // Keep current files: remember the decision so the session_tree
+            // handler skips the restore while tree navigation continues.
+            state.skipRestorePending = true;
+        }
         // "yes" → session_tree handler will restore files
     });
 
     pi.on("session_tree", async (event: SessionTreeEvent, ctx: ExtensionContext) => {
         const state = getState(ctx.sessionManager.getSessionId());
         if (!state || !event.newLeafId) return;
+
+        if (state.skipRestorePending) {
+            // User chose "No — keep current files"; do not touch the tree.
+            state.skipRestorePending = false;
+            return;
+        }
 
         const snapshot = await state.snapshots.findSnapshot(event.newLeafId, ctx);
         if (!snapshot) {
