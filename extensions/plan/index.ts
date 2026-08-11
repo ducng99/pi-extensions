@@ -6,125 +6,47 @@
  * tools, and tool-permissions is told (via the shared `pi.events` bus) to gate
  * every intercepted tool against the plan-mode permission set.
  *
- * After a plan is written or edited, the user is prompted to implement it,
- * clear and restart, or keep chatting.
+ * After a plan is written or edited, the plan is rendered inline above a
+ * "what next?" prompt (implement it, clear and restart, or keep chatting).
+ * The tools themselves use pi's default tool-row rendering.
  *
  * Plan mode is in-memory only. Every session starts with plan mode off.
  */
 
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { CONFIG_DIR_NAME, createEditToolDefinition, createWriteToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createEditToolDefinition, createWriteToolDefinition } from "@earendil-works/pi-coding-agent";
 import { readFile } from "fs/promises";
 import { join } from "path";
 
-import type { ParsedPermissions } from "../tool-permissions/src/permission-parsing";
-import { renderCall, renderResult } from "./renderer";
+import { createPlanPrompt } from "./renderer";
+import type { PlanDetails } from "./schema";
 import { EditPlanParams, WritePlanParams } from "./schema";
+import { PLAN_MODE_PERMISSIONS, PLAN_TOOL_NAMES, PLAN_WRITE_TOOLS } from "./tools";
+import { normalizePlanFilename, plansDir } from "./utils";
 
-// ============================================================================
-// Plan-mode tagged tools
-// ============================================================================
-
-/** Tools available while plan mode is active. */
-const PLAN_TOOL_NAMES = new Set(["read", "bash", "grep", "find", "ls", "ask_user_questions", "webfetch", "websearch", "write_plan", "edit_plan"]);
-
-/** Plan tools whose completion should trigger the "what next?" prompt. */
-const PLAN_WRITE_TOOLS = new Set(["write_plan", "edit_plan"]);
-
-/**
- * Plan-mode permission set emitted so tool-permissions can gate plan-mode tool
- * calls. It is deny-focused: mutating tools and destructive bash commands are
- * blocked outright, while everything else flows through the user's own settings
- * (bash defaults to "ask" when not explicitly allowed).
- */
-export const PLAN_MODE_PERMISSIONS: ParsedPermissions = {
-    allow: [],
-    ask: [],
-    deny: [
-        { category: "edit", pattern: "*" },
-        { category: "write", pattern: "*" },
-        // Filesystem mutators
-        { category: "bash", pattern: "rm *" },
-        { category: "bash", pattern: "mv *" },
-        { category: "bash", pattern: "cp *" },
-        { category: "bash", pattern: "touch *" },
-        { category: "bash", pattern: "mkdir *" },
-        { category: "bash", pattern: "rmdir *" },
-        { category: "bash", pattern: "chmod *" },
-        { category: "bash", pattern: "chown *" },
-        { category: "bash", pattern: "ln *" },
-        { category: "bash", pattern: "truncate *" },
-        { category: "bash", pattern: "shred *" },
-        { category: "bash", pattern: "dd *" },
-        { category: "bash", pattern: "tee *" },
-        { category: "bash", pattern: "install *" },
-        { category: "bash", pattern: "sed -i *" },
-        // Version control
-        { category: "bash", pattern: "git add *" },
-        { category: "bash", pattern: "git commit *" },
-        { category: "bash", pattern: "git push *" },
-        { category: "bash", pattern: "git pull *" },
-        { category: "bash", pattern: "git reset *" },
-        { category: "bash", pattern: "git checkout *" },
-        { category: "bash", pattern: "git clean *" },
-        { category: "bash", pattern: "git rm *" },
-        { category: "bash", pattern: "git stash *" },
-        { category: "bash", pattern: "git merge *" },
-        { category: "bash", pattern: "git rebase *" },
-        // Package managers / build tools
-        { category: "bash", pattern: "npm install *" },
-        { category: "bash", pattern: "npm run *" },
-        { category: "bash", pattern: "pnpm install *" },
-        { category: "bash", pattern: "pnpm run *" },
-        { category: "bash", pattern: "bun install *" },
-        { category: "bash", pattern: "bun run *" },
-        { category: "bash", pattern: "yarn *" },
-        { category: "bash", pattern: "pnpm *" },
-        { category: "bash", pattern: "make *" },
-        { category: "bash", pattern: "pip install *" },
-        { category: "bash", pattern: "apt *" },
-        { category: "bash", pattern: "apt-get *" },
-        { category: "bash", pattern: "brew *" },
-    ],
-    additionalDirectories: [],
-};
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-function normalizePlanFilename(filename: string): string {
-    const trimmed = filename.trim();
-    return trimmed.endsWith(".md") ? trimmed : `${trimmed}.md`;
-}
-
-function plansDir(cwd: string): string {
-    return join(cwd, CONFIG_DIR_NAME, "plans");
-}
-
-// ============================================================================
-// Extension
-// ============================================================================
+const STATUS_PLAN_MODE = "status:plan_mode";
 
 export default function planExtension(pi: ExtensionAPI) {
     // In-memory state. Always starts false for every session.
     let planModeActive = false;
     let toolsBeforePlanMode: string[] = [];
 
-    function emitDeactivated(): void {
-        pi.events.emit("plan_mode:deactivated", {});
-    }
-
     function deactivatePlanMode(ctx: ExtensionContext): void {
         if (!planModeActive) return;
         planModeActive = false;
         pi.setActiveTools(toolsBeforePlanMode);
         toolsBeforePlanMode = [];
-        emitDeactivated();
-        ctx.ui.notify("Plan mode disabled. Full access restored.", "info");
+        pi.events.emit("plan_mode:deactivated", {});
+        ctx.ui.setStatus(STATUS_PLAN_MODE, undefined);
+
+        pi.sendMessage({
+            customType: "plan",
+            content: "Plan mode disabled. Full access restored.",
+            display: true,
+        });
     }
 
-    function togglePlanMode(ctx: ExtensionCommandContext): void {
+    function togglePlanMode(ctx: ExtensionContext): void {
         if (planModeActive) {
             deactivatePlanMode(ctx);
             return;
@@ -134,23 +56,56 @@ export default function planExtension(pi: ExtensionAPI) {
         pi.setActiveTools([...PLAN_TOOL_NAMES]);
         planModeActive = true;
         pi.events.emit("plan_mode:activated", PLAN_MODE_PERMISSIONS);
-        ctx.ui.notify("Plan mode enabled. Only read-only tools and plan writing are allowed.", "info");
+        ctx.ui.setStatus(STATUS_PLAN_MODE, ctx.ui.theme.fg("dim", "⏸ plan mode on"));
+
+        pi.sendMessage({
+            customType: "plan",
+            content: "Plan mode enabled. Only read-only tools and plan writing are allowed.",
+            display: true,
+        });
     }
 
     // No state persistence: every session starts with plan mode off.
-    pi.on("session_start", (_event, ctx) => {
+    pi.on("session_start", (_, ctx) => {
         if (planModeActive) deactivatePlanMode(ctx);
     });
 
-    // After the plan is written or edited, offer next steps.
     pi.on("tool_result", async (event, ctx) => {
         if (!planModeActive || !PLAN_WRITE_TOOLS.has(event.toolName) || !ctx.hasUI) return;
 
-        const choice = await ctx.ui.select("Plan ready — what next?", [
+        const first = event.content?.[0];
+        const content = first?.type === "text" ? first.text : "";
+        const filename = (event.details as PlanDetails | undefined)?.filename ?? "";
+
+        const options = [
             "Implement now — exit plan mode and continue working",
             "Clear & implement — start fresh (not yet implemented)",
             "Chat more — stay in plan mode and keep chatting",
-        ]);
+        ];
+
+        // TUI: show the plan (Markdown) above a SelectList of next steps, as a
+        // fullscreen overlay. The component is removed from the UI as soon as
+        // the user answers.
+        const choice = ctx.mode === "tui"
+            ? await ctx.ui.custom<string>(
+                    (tui, theme, _keybindings, done) =>
+                        createPlanPrompt(filename, content, {
+                            tui,
+                            theme,
+                            isError: event.isError,
+                            done,
+                        }),
+                    {
+                        overlay: true,
+                        overlayOptions: {
+                            width: "100%",
+                            maxHeight: "100%",
+                            margin: 0,
+                            anchor: "top-left",
+                        },
+                    },
+                )
+            : await ctx.ui.select("Plan ready — what next?", options);
 
         if (choice?.startsWith("Implement now")) {
             deactivatePlanMode(ctx);
@@ -167,7 +122,7 @@ export default function planExtension(pi: ExtensionAPI) {
 
     pi.registerCommand("plan", {
         description: "Toggle plan mode (read-only exploration + write_plan/edit_plan)",
-        handler: async (_args, ctx) => togglePlanMode(ctx),
+        handler: async (_, ctx) => togglePlanMode(ctx),
     });
 
     pi.registerTool({
@@ -210,8 +165,6 @@ export default function planExtension(pi: ExtensionAPI) {
                 details: { filename, fullPath },
             };
         },
-        renderCall: renderCall,
-        renderResult: renderResult,
     });
 
     pi.registerTool({
@@ -254,7 +207,5 @@ export default function planExtension(pi: ExtensionAPI) {
                 details: { filename, fullPath },
             };
         },
-        renderCall: renderCall,
-        renderResult: renderResult,
     });
 }

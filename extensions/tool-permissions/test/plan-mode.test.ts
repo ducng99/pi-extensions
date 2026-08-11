@@ -3,7 +3,7 @@ import { mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { PLAN_MODE_PERMISSIONS } from "../../plan/index";
+import { PLAN_MODE_PERMISSIONS } from "../../plan/tools";
 import { initParser } from "../../shared/bash-parser/index";
 import { checkPermission } from "../src/permission-check";
 import type { ParsedPermissions } from "../src/permission-parsing";

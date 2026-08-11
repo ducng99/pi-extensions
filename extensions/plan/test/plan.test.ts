@@ -4,12 +4,20 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { default as planExtension } from "../index";
-import { renderResult } from "../renderer";
+import { createPlanPrompt } from "../renderer";
 import type { PlanDetails } from "../schema";
 
 // ============================================================================
 // Minimal fake pi + ctx harness
 // ============================================================================
+
+const fakeTheme = {
+    fg: (_c: string, s: string) => s,
+    bold: (s: string) => s,
+    italic: (s: string) => s,
+    underline: (s: string) => s,
+    strikethrough: (s: string) => s,
+} as never;
 
 type PlanToolResult = {
     content: { type: string; text: string }[];
@@ -52,20 +60,31 @@ function setupHarness() {
         setActiveTools: (names: string[]) => {
             activeTools = [...names];
         },
+        sendMessage: () => {},
         sendUserMessage: () => {},
     };
 
     planExtension(fakePi as never);
 
-    const uiCalls = { selects: 0 };
+    const uiCalls = { prompts: 0 };
     const ctx = (cwd: string) => ({
         cwd,
         hasUI: true,
+        mode: "tui",
         abort: () => {},
         ui: {
             notify: () => {},
+            setStatus: () => {},
+            theme: fakeTheme,
+            custom: async (factory: (tui: unknown, theme: unknown, kb: unknown, done: (value: unknown) => void) => { render(w: number): string[] }) => {
+                uiCalls.prompts++;
+                // Build and render the component to exercise the prompt UI.
+                const comp = factory({ requestRender: () => {}, terminal: { rows: 40 } }, fakeTheme, undefined, () => {});
+                comp.render(80);
+                return "Chat more — stay in plan mode and keep chatting";
+            },
             select: () => {
-                uiCalls.selects++;
+                uiCalls.prompts++;
                 return Promise.resolve("Chat more — stay in plan mode and keep chatting");
             },
         },
@@ -77,7 +96,7 @@ function setupHarness() {
         sessionStart: (cwd: string) => listeners.get("session_start")!({ type: "session_start", reason: "new" }, ctx(cwd)),
         executionEnd: (toolName: string, cwd: string) =>
             listeners.get("tool_result")!({ toolName }, ctx(cwd)),
-        selectCount: () => uiCalls.selects,
+        selectCount: () => uiCalls.prompts,
         executeTool: (name: string, params: unknown, cwd: string): Promise<PlanToolResult> => {
             const tool = tools.get(name);
             if (!tool) throw new Error(`tool ${name} not registered`);
@@ -145,19 +164,144 @@ describe("plan extension tools", () => {
         expect(h.getActiveTools()).toEqual(before);
     });
 
-    test("renderResult returns a Container with children", () => {
-        const theme = {
-            fg: (_c: string, s: string) => s,
-            bold: (s: string) => s,
-            bg: (_c: string, s: string) => s,
-            italic: (s: string) => s,
-            underline: (s: string) => s,
-            strikethrough: (s: string) => s,
-        } as never;
-        const result = { details: { filename: "plan.md", fullPath: "/x/plan.md" }, content: [{ type: "text", text: "# hi" }] } as never;
-        const comp = renderResult(result, { expanded: false, isPartial: false }, theme);
-        const children = (comp as { children: unknown[] }).children;
-        expect(Array.isArray(children)).toBe(true);
-        expect(children.length).toBeGreaterThan(0);
+    test("createPlanPrompt renders the plan and resolves via the select list", () => {
+        const tui = { requestRender: () => {} };
+
+        let chosen: string | null = null;
+        const comp = createPlanPrompt("roadmap.md", "# Roadmap\n\nstep 1", {
+            tui: tui as never,
+            theme: fakeTheme,
+            done: (c) => {
+                chosen = c;
+            },
+        }) as unknown as { render(w: number): string[]; handleInput(data: string): void };
+
+        const lines = comp.render(80);
+        expect(lines.length).toBeGreaterThan(0);
+        const text = lines.join("\n");
+        expect(text).toContain("Roadmap");
+        // Header with the plan filename, plus the options and help line below.
+        expect(text).toContain("Plan roadmap.md");
+        expect(text).toContain("Implement now");
+        expect(text).toContain("esc cancel");
+
+        // Enter selects the first option ("Implement now").
+        comp.handleInput("\r");
+        expect(chosen!).toBe("Implement now — exit plan mode and continue working");
+    });
+
+    test("createPlanPrompt Esc behaves like Chat more (stays in plan mode)", () => {
+        const tui = { requestRender: () => {} };
+        let chosen: string | null = null;
+        const comp = createPlanPrompt("roadmap.md", "# Roadmap", {
+            tui: tui as never,
+            theme: fakeTheme,
+            done: (c) => {
+                chosen = c;
+            },
+        }) as unknown as { handleInput(data: string): void };
+
+        comp.handleInput("\x1b");
+        expect(chosen!).toBe("Chat more — stay in plan mode and keep chatting");
+    });
+
+    test("createPlanPrompt scrolls a long plan with PgDn/PgUp", () => {
+        const tui = { requestRender: () => {}, terminal: { rows: 40 } };
+        // 40 lines of content vs a 28-line viewport at 40 terminal rows
+        // (rows - 12 chrome lines); 12 lines stay hidden either side.
+        const longContent = Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n");
+        let chosen: string | null = null;
+        const comp = createPlanPrompt("long.md", longContent, {
+            tui: tui as never,
+            theme: fakeTheme,
+            done: (c) => {
+                chosen = c;
+            },
+        }) as unknown as { render(w: number): string[]; handleInput(data: string): void };
+
+        // Initial render: top of the plan, "... ↓ N more" indicator, no "↑".
+        let lines = comp.render(80).join("\n");
+        expect(lines).toContain("line 0");
+        expect(lines).toContain("... ↓ 12 more");
+        expect(lines).not.toContain("... ↑ ");
+        expect(lines).toContain("Plan ready — what next?");
+
+        // PgDn scrolls into the plan: an "↑" indicator appears now.
+        comp.handleInput("\x1b[6~"); // pageDown
+        lines = comp.render(80).join("\n");
+        expect(lines).toContain("... ↑ 12 more");
+        expect(lines).not.toContain("line 0");
+
+        // Ctrl+U scrolls back up (works even in fullscreen mode, where PgUp is
+        // consumed by pi's viewport to scroll the chat transcript).
+        comp.handleInput("\x15"); // ctrl+u
+        lines = comp.render(80).join("\n");
+        expect(lines).toContain("line 0");
+        expect(lines).not.toContain("... ↑ ");
+
+        // Ctrl+D scrolls down again.
+        comp.handleInput("\x04"); // ctrl+d
+        lines = comp.render(80).join("\n");
+        expect(lines).toContain("... ↑ 12 more");
+        expect(lines).not.toContain("line 0");
+
+        // Home jumps back to the top.
+        comp.handleInput("\x1b[H"); // home
+        lines = comp.render(80).join("\n");
+        expect(lines).toContain("line 0");
+        expect(lines).not.toContain("... ↑ ");
+
+        // Enter still selects the first option after scrolling around.
+        comp.handleInput("\r");
+        expect(chosen!).toBe("Implement now — exit plan mode and continue working");
+    });
+
+    test("createPlanPrompt fills the whole terminal with the plan preview", () => {
+        const tui = { requestRender: () => {}, terminal: { rows: 40 } };
+        const longContent = Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n");
+        const comp = createPlanPrompt("long.md", longContent, {
+            tui: tui as never,
+            theme: fakeTheme,
+            done: () => {},
+        }) as unknown as { render(w: number): string[] };
+
+        const lines = comp.render(100).join("\n");
+        // Viewport = rows - chrome(12) = 28 region lines; the bottom "more"
+        // indicator takes one slot, so content 0-26 shows, filling the screen.
+        expect(lines).toContain("line 0");
+        expect(lines).toContain("line 26");
+        expect(lines).not.toContain("line 27");
+        // pi-style border lines around the select list.
+        const borderLine = "─".repeat(100);
+        expect(lines).toContain(borderLine);
+        expect(lines).toContain("... ↓ 12 more");
+        expect(lines).toContain("Plan ready — what next?");
+        expect(lines).toContain("Implement now");
+    });
+
+    test("createPlanPrompt shows error and empty results as plain text", () => {
+        const tui = { requestRender: () => {}, terminal: { rows: 24 } };
+
+        // An error result is rendered verbatim instead of being parsed as
+        // markdown (so the raw message stays visible).
+        const err = createPlanPrompt("plan.md", "## boom **failed**", {
+            tui: tui as never,
+            theme: fakeTheme,
+            isError: true,
+            done: () => {},
+        }) as unknown as { render(w: number): string[] };
+        let lines = err.render(80).join("\n");
+        expect(lines).toContain("## boom **failed**");
+        // The next-step options are still offered after an error.
+        expect(lines).toContain("Implement now");
+
+        // Empty content falls back to a placeholder line.
+        const empty = createPlanPrompt("plan.md", "", {
+            tui: tui as never,
+            theme: fakeTheme,
+            done: () => {},
+        }) as unknown as { render(w: number): string[] };
+        lines = empty.render(80).join("\n");
+        expect(lines).toContain("(plan content unavailable)");
     });
 });
