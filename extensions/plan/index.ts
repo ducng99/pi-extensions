@@ -22,6 +22,7 @@ import { createEditToolDefinition, createWriteToolDefinition } from "@earendil-w
 import { readFile } from "fs/promises";
 import { join } from "path";
 
+import { PLAN_GUIDE_PROMPT } from "./prompt";
 import { createPlanPrompt } from "./renderer";
 import type { PlanDetails } from "./schema";
 import { EditPlanParams, WritePlanParams } from "./schema";
@@ -35,12 +36,14 @@ interface PlanModeEntryData {
     active: boolean;
     /** Active tool set captured when plan mode was toggled on, to restore on toggle off. */
     toolsBefore?: string[];
+    includedGuide: boolean;
 }
 
 export default function planExtension(pi: ExtensionAPI) {
     // In-memory mirror of the session's latest `plan:mode` entry. Restored on
     // session_start; off by default for sessions without an entry.
     let planModeActive = false;
+    let hasIncludedGuide = false;
     let toolsBeforePlanMode: string[] = [];
 
     function deactivatePlanMode(ctx: ExtensionContext): void {
@@ -48,14 +51,16 @@ export default function planExtension(pi: ExtensionAPI) {
         planModeActive = false;
         pi.setActiveTools(toolsBeforePlanMode);
         toolsBeforePlanMode = [];
-        pi.appendEntry(PLAN_MODE_ENTRY_TYPE, { active: false });
+        pi.appendEntry(PLAN_MODE_ENTRY_TYPE, { active: false, includedGuide: false } satisfies PlanModeEntryData);
         pi.events.emit("plan_mode:deactivated", {});
         ctx.ui.setStatus(STATUS_PLAN_MODE, undefined);
 
+        ctx.ui.notify("Plan mode on", "info");
+
         pi.sendMessage({
             customType: "plan",
-            content: "Plan mode disabled. Full access restored.",
-            display: true,
+            content: "Plan mode disabled. You can now make edits, run tools and take actions.",
+            display: false,
         });
     }
 
@@ -79,6 +84,7 @@ export default function planExtension(pi: ExtensionAPI) {
                 // getActiveTools() is an unreliable fallback.
                 toolsBeforePlanMode = data.toolsBefore ?? pi.getActiveTools();
                 planModeActive = true;
+                hasIncludedGuide = data.includedGuide;
                 pi.setActiveTools([...PLAN_TOOL_NAMES]);
                 pi.events.emit("plan_mode:activated", PLAN_MODE_PERMISSIONS);
                 ctx.ui.setStatus(STATUS_PLAN_MODE, ctx.ui.theme.fg("dim", "⏸ plan mode on"));
@@ -93,6 +99,7 @@ export default function planExtension(pi: ExtensionAPI) {
         // No plan:mode entry (e.g. a brand-new session) — plan mode is off by
         // default. Clear any stale in-memory state from an earlier session.
         planModeActive = false;
+        hasIncludedGuide = false;
         toolsBeforePlanMode = [];
     }
 
@@ -105,14 +112,22 @@ export default function planExtension(pi: ExtensionAPI) {
         toolsBeforePlanMode = pi.getActiveTools();
         pi.setActiveTools([...PLAN_TOOL_NAMES]);
         planModeActive = true;
-        pi.appendEntry(PLAN_MODE_ENTRY_TYPE, { active: true, toolsBefore: toolsBeforePlanMode });
+
+        let includeGuide = false;
+        if (!hasIncludedGuide) {
+            hasIncludedGuide = true;
+            includeGuide = true;
+        }
+
+        pi.appendEntry(PLAN_MODE_ENTRY_TYPE, { active: true, toolsBefore: toolsBeforePlanMode, includedGuide: includeGuide } satisfies PlanModeEntryData);
         pi.events.emit("plan_mode:activated", PLAN_MODE_PERMISSIONS);
         ctx.ui.setStatus(STATUS_PLAN_MODE, ctx.ui.theme.fg("dim", "⏸ plan mode on"));
 
+        ctx.ui.notify("Plan mode off", "info");
         pi.sendMessage({
             customType: "plan",
-            content: "Plan mode enabled. Only read-only tools and plan writing are allowed.",
-            display: true,
+            content: "Plan mode enabled. Only read-only tools and plan writing are allowed. " + (includeGuide ? PLAN_GUIDE_PROMPT : "Follow the plan workflow you already have."),
+            display: false,
         });
     }
 
