@@ -4,41 +4,7 @@
 
 import * as os from "os";
 
-import type { DisplayItem, Message, PermissionConfig, UsageStats } from "./types";
-
-export function permissionsToClaudeSettings(permissions: PermissionConfig): {
-    permissions: { allow: string[]; ask: string[]; deny: string[] };
-} {
-    const settings: { permissions: { allow: string[]; ask: string[]; deny: string[] } } = {
-        permissions: { allow: [], ask: [], deny: [] },
-    };
-
-    const knownCategories = new Set(["edit", "bash", "read", "grep", "find", "ls", "write"]);
-
-    for (const [category, rawDecision] of Object.entries(permissions)) {
-        const decision = rawDecision.toLowerCase();
-        if (decision !== "allow" && decision !== "ask" && decision !== "deny") continue;
-
-        if (category === "*") {
-            for (const cat of knownCategories) {
-                settings.permissions[decision].push(formatCategory(cat));
-            }
-        }
-        else {
-            settings.permissions[decision].push(formatCategory(category));
-        }
-    }
-
-    return settings;
-}
-
-function formatCategory(category: string): string {
-    const lower = category.toLowerCase();
-    if (lower === "find" || lower === "ls") return "Bash(*)";
-    if (lower === "edit" || lower === "write") return "Edit(*)";
-    const capitalized = lower.charAt(0).toUpperCase() + lower.slice(1);
-    return `${capitalized}(*)`;
-}
+import type { DisplayItem, Message, UsageStats } from "./types";
 
 export function formatTokens(count: number): string {
     if (count < 1000) return count.toString();

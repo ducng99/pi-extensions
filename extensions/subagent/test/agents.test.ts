@@ -48,26 +48,12 @@ describe("discoverAgents", () => {
         expect(findAgent(result.agents, "reviewer")?.source).toBe("user");
     });
 
-    test("loads user/global opencode agents", () => {
-        const opencodeDir = path.join(tmpDir, ".config", "opencode", "agents");
-        writeAgent(opencodeDir, "worker.md", "---\nname: worker\nrole: Generic worker\n---\nDo work.");
-
-        // Use a project dir that has no agents to isolate user agent discovery
-        const projectDir = path.join(tmpDir, "project");
-        fs.mkdirSync(projectDir, { recursive: true });
-        const result = discoverAgents(projectDir);
-        expect(names(result.agents)).toEqual(["Explore", "worker"]);
-        expect(findAgent(result.agents, "worker")?.source).toBe("user");
-    });
-
-    test("loads project-local claude and opencode agents", () => {
+    test("loads project-local claude agents", () => {
         const projectClaudeDir = path.join(tmpDir, "project", ".claude", "agents");
-        const projectOpencodeDir = path.join(tmpDir, "project", ".opencode", "agents");
         writeAgent(projectClaudeDir, "reviewer.md", "---\ndescription: Project reviewer\n---\nProject review.");
-        writeAgent(projectOpencodeDir, "worker.md", "---\nname: worker\nrole: Project worker\n---\nProject work.");
 
         const result = discoverAgents(path.join(tmpDir, "project"));
-        expect(names(result.agents)).toEqual(["Explore", "reviewer", "worker"]);
+        expect(names(result.agents)).toEqual(["Explore", "reviewer"]);
         const reviewer = findAgent(result.agents, "reviewer")!;
         expect(reviewer.source).toBe("project");
         expect(reviewer.systemPrompt).toContain("Project review.");
@@ -95,17 +81,6 @@ describe("discoverAgents", () => {
         expect(reviewer.systemPrompt).toContain("Project review.");
     });
 
-    test("claude agents take precedence over opencode agents at same scope", () => {
-        const projectClaudeDir = path.join(tmpDir, "project", ".claude", "agents");
-        const projectOpencodeDir = path.join(tmpDir, "project", ".opencode", "agents");
-        writeAgent(projectClaudeDir, "reviewer.md", "---\ndescription: Claude reviewer\n---\nClaude review.");
-        writeAgent(projectOpencodeDir, "reviewer.md", "---\nname: reviewer\nrole: Opencode reviewer\n---\nOpencode review.");
-
-        const result = discoverAgents(path.join(tmpDir, "project"));
-        const reviewer = findAgent(result.agents, "reviewer")!;
-        expect(reviewer.systemPrompt).toContain("Claude review.");
-    });
-
     test("parses claude frontmatter tools/disallowedTools", () => {
         const claudeDir = path.join(tmpDir, ".claude", "agents");
         writeAgent(
@@ -123,32 +98,12 @@ describe("discoverAgents", () => {
         expect(agent.model).toBe("anthropic/claude-sonnet-4-20250514");
         expect(agent.tools).toEqual(["Read", "Grep", "Glob", "Bash"]);
         expect(agent.disallowedTools).toEqual(["Edit"]);
-        expect(agent.permissions).toBeUndefined();
         expect(agent.systemPrompt).toContain("Be smart.");
     });
 
-    test("parses opencode frontmatter fields", () => {
-        const opencodeDir = path.join(tmpDir, ".config", "opencode", "agents");
-        writeAgent(
-            opencodeDir,
-            "helper.md",
-            "---\nname: helper\nrole: Helpful agent\nmodel: openai/gpt-4o\npermission:\n  read: allow\n  write: ask\n---\nBe helpful.",
-        );
-
-        // Use a project dir that has no agents to isolate user agent discovery
-        const projectDir = path.join(tmpDir, "project");
-        fs.mkdirSync(projectDir, { recursive: true });
-        const result = discoverAgents(projectDir);
-        const agent = findAgent(result.agents, "helper")!;
-        expect(agent.name).toBe("helper");
-        expect(agent.description).toBe("Helpful agent");
-        expect(agent.model).toBe("openai/gpt-4o");
-        expect(agent.permissions).toEqual({ read: "allow", write: "ask" });
-    });
-
-    test("opencode name falls back to filename stem", () => {
-        const opencodeDir = path.join(tmpDir, ".config", "opencode", "agents");
-        writeAgent(opencodeDir, "fallback.md", "---\nrole: Fallback agent\n---\nFallback.");
+    test("name falls back to filename stem", () => {
+        const claudeDir = path.join(tmpDir, ".claude", "agents");
+        writeAgent(claudeDir, "fallback.md", "---\nrole: Fallback agent\n---\nFallback.");
 
         // Use a project dir that has no agents to isolate user agent discovery
         const projectDir = path.join(tmpDir, "project");
@@ -190,7 +145,6 @@ describe("discoverAgents", () => {
         const result = discoverAgents(projectDir);
         expect(names(result.agents)).toEqual(["Explore"]);
         expect(result.projectClaudeAgentsDir).toBeNull();
-        expect(result.projectOpencodeAgentsDir).toBeNull();
     });
 
     test("user agents override built-in agents with the same name", () => {

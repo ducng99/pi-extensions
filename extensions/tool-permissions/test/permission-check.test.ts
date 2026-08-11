@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { initParser } from "../../shared/bash-parser/index";
 import { checkPermission, isOutOfBounds, REASON_BASH_COMPLEX, REASON_BASH_PARSE_ERROR } from "../src/permission-check";
 import type { ParsedPermissions } from "../src/permission-parsing";
-import { parseClaudePerms, parseOpencodePerms } from "../src/permission-parsing";
+import { parseClaudePerms } from "../src/permission-parsing";
 
 // Initialize parser before all tests
 beforeAll(async () => {
@@ -724,73 +724,6 @@ describe("parseClaudePerms: additionalDirectories parsing", () => {
             },
         });
         const result = parseClaudePerms(config);
-        expect(result.additionalDirectories).toBeUndefined();
-    });
-});
-
-describe("parseOpencodePerms: external_directory parsing", () => {
-    test("parses external_directory with glob patterns as additionalDirectories", () => {
-        const config = JSON.stringify({
-            permission: {
-                external_directory: {
-                    "~/projects/personal/**": "allow",
-                    "/tmp/work/**": "allow",
-                },
-            },
-        });
-        const result = parseOpencodePerms(config);
-        expect(result.additionalDirectories).toEqual([
-            "~/projects/personal",
-            "/tmp/work",
-        ]);
-    });
-
-    test("only includes allowed external_directory entries", () => {
-        const config = JSON.stringify({
-            permission: {
-                external_directory: {
-                    "~/projects/**": "allow",
-                    "~/private/**": "deny",
-                },
-            },
-        });
-        const result = parseOpencodePerms(config);
-        expect(result.additionalDirectories).toEqual(["~/projects"]);
-    });
-
-    test("handles single-star glob patterns", () => {
-        const config = JSON.stringify({
-            permission: {
-                external_directory: {
-                    "~/projects/*": "allow",
-                },
-            },
-        });
-        const result = parseOpencodePerms(config);
-        expect(result.additionalDirectories).toEqual(["~/projects"]);
-    });
-
-    test("handles paths without glob suffix", () => {
-        const config = JSON.stringify({
-            permission: {
-                external_directory: {
-                    "~/projects": "allow",
-                },
-            },
-        });
-        const result = parseOpencodePerms(config);
-        expect(result.additionalDirectories).toEqual(["~/projects"]);
-    });
-
-    test("returns undefined additionalDirectories when not present", () => {
-        const config = JSON.stringify({
-            permission: {
-                bash: {
-                    "ls *": "allow",
-                },
-            },
-        });
-        const result = parseOpencodePerms(config);
         expect(result.additionalDirectories).toBeUndefined();
     });
 });

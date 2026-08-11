@@ -7,9 +7,9 @@
  * shadow git repository stored in ~/.pi/agent/file-rollback/<projectHash>/.git
  * to avoid polluting the project directory.
  *
- * This mirrors opencode's snapshot engine: snapshots are git tree hashes
- * (never commits), the shadow repo is seeded from the source repo, and the
- * extension is silent when the project is not a git repo.
+ * Snapshots are git tree hashes (never commits), the shadow repo is seeded
+ * from the source repo, and the extension is silent when the project is not
+ * a git repo.
  */
 
 import type {

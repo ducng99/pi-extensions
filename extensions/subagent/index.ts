@@ -107,7 +107,6 @@ paths, line numbers, what specifically to change.
                 (results: SingleResult[], backgroundTasks: BackgroundTaskInfo[] = []): SubagentDetails => ({
                     mode,
                     projectClaudeAgentsDir: discovery.projectClaudeAgentsDir,
-                    projectOpencodeAgentsDir: discovery.projectOpencodeAgentsDir,
                     results,
                     backgroundTasks,
                 });
@@ -127,11 +126,7 @@ paths, line numbers, what specifically to change.
 
             const agent = agents.find(a => a.name === params.agent);
             if (agent?.source === "project" && !ctx.isProjectTrusted() && ctx.hasUI) {
-                const dirs = [
-                    discovery.projectClaudeAgentsDir,
-                    discovery.projectOpencodeAgentsDir,
-                ].filter(Boolean);
-                const dir = dirs.length > 0 ? dirs.join(", ") : "(unknown)";
+                const dir = discovery.projectClaudeAgentsDir ?? "(unknown)";
                 const ok = await ctx.ui.confirm(
                     "Run project-local agent?",
                     `Agent: ${agent.name}\nSource: ${dir}\n\nProject agents are repo-controlled. Only continue for trusted repositories.`,

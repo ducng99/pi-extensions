@@ -3,9 +3,7 @@
  *
  * Discovers Markdown agent definitions from the following locations:
  *   - User/global Claude agents: ~/.claude/agents/*.md
- *   - User/global OpenCode agents: ~/.config/opencode/agents/*.md
  *   - Project-local Claude agents: <cwd>/.claude/agents/*.md (searched upward)
- *   - Project-local OpenCode agents: <cwd>/.opencode/agents/*.md (searched upward)
  */
 
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
@@ -14,14 +12,13 @@ import { homedir } from "os";
 import * as path from "path";
 
 import exploreAgent from "./defaultAgents/explore";
-import type { AgentConfig, AgentDiscoveryResult, DefaultAgentDefinition, PermissionConfig } from "./types";
+import type { AgentConfig, AgentDiscoveryResult, DefaultAgentDefinition } from "./types";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
 const CLAUDE_AGENTS_DIR = "agents";
-const OPENCODE_AGENTS_DIR = "agents";
 
 // ============================================================================
 // Helpers
@@ -33,10 +30,6 @@ function getHomeDir(): string {
 
 function userClaudeDir(): string {
     return path.join(getHomeDir(), ".claude", CLAUDE_AGENTS_DIR);
-}
-
-function userOpencodeDir(): string {
-    return path.join(getHomeDir(), ".config", "opencode", OPENCODE_AGENTS_DIR);
 }
 
 function isDirectory(p: string): boolean {
@@ -77,18 +70,6 @@ function isString(value: unknown): value is string {
     return typeof value === "string";
 }
 
-function parsePermissionConfig(value: unknown): PermissionConfig | undefined {
-    if (value === null || typeof value !== "object") return undefined;
-    const result: PermissionConfig = {};
-    for (const [key, decision] of Object.entries(value as Record<string, unknown>)) {
-        const dec = String(decision).toLowerCase();
-        if (dec === "allow" || dec === "ask" || dec === "deny") {
-            result[key] = dec;
-        }
-    }
-    return Object.keys(result).length > 0 ? result : undefined;
-}
-
 function parseToolsList(value: unknown): string[] {
     if (Array.isArray(value)) return value.map(v => String(v));
     if (typeof value === "string") return value.split(",").map(s => s.trim()).filter(Boolean);
@@ -114,7 +95,6 @@ function loadDefaultAgent(definition: DefaultAgentDefinition, filePath: string):
         systemPrompt: definition.systemPrompt,
         source: "default",
         filePath,
-        permissions: definition.permissions,
     };
 }
 
@@ -159,7 +139,6 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
         if (!description) continue;
 
         const model = parseFrontmatterValue(frontmatter.model);
-        const permissions = parsePermissionConfig(frontmatter.permission);
         const tools = parseToolsList(frontmatter.tools);
         const disallowedTools = parseToolsList(frontmatter.disallowedTools);
 
@@ -170,7 +149,6 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
             systemPrompt: body,
             source,
             filePath,
-            permissions,
             tools: tools.length > 0 ? tools : undefined,
             disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
         });
@@ -185,34 +163,26 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 
 export function discoverAgents(cwd: string): AgentDiscoveryResult {
     const projectClaudeAgentsDir = findNearestProjectDir(cwd, ".claude");
-    const projectOpencodeAgentsDir = findNearestProjectDir(cwd, ".opencode");
 
     const userClaudeAgents = loadAgentsFromDir(userClaudeDir(), "user");
-    const userOpencodeAgents = loadAgentsFromDir(userOpencodeDir(), "user");
     const projectClaudeAgents = !projectClaudeAgentsDir ? [] : loadAgentsFromDir(projectClaudeAgentsDir, "project");
-    const projectOpencodeAgents = !projectOpencodeAgentsDir ? [] : loadAgentsFromDir(projectOpencodeAgentsDir, "project");
 
     const agentMap = new Map<string, AgentConfig>();
 
     // Priority order, lowest to highest:
     // 1. Built-in default agents
-    // 2. User-level OpenCode
-    // 3. User-level Claude
-    // 4. Project-local OpenCode
-    // 5. Project-local Claude
+    // 2. User-level Claude
+    // 3. Project-local Claude
     // Default agents are loaded first so any user-defined agent with the same
     // name overrides the built-in definition.
     const defaultAgents = loadDefaultAgents();
     for (const agent of defaultAgents) agentMap.set(agent.name, agent);
-    for (const agent of userOpencodeAgents) agentMap.set(agent.name, agent);
     for (const agent of userClaudeAgents) agentMap.set(agent.name, agent);
-    for (const agent of projectOpencodeAgents) agentMap.set(agent.name, agent);
     for (const agent of projectClaudeAgents) agentMap.set(agent.name, agent);
 
     return {
         agents: Array.from(agentMap.values()),
         projectClaudeAgentsDir,
-        projectOpencodeAgentsDir,
     };
 }
 

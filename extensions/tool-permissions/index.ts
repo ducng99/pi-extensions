@@ -5,14 +5,10 @@
  * - claude settings.json (global: ~/.claude/settings.json)
  * - claude settings.json (project-local: .claude/settings.json)
  * - claude settings.local.json (project-local, higher priority: .claude/settings.local.json)
- * - opencode.jsonc (global: ~/.config/opencode/opencode.jsonc)
- * - opencode.jsonc (project-local: .opencode/opencode.json[rc])
  * - subagent permissions file (PI_SUBAGENT_PERMISSIONS_FILE)
  * - plan-mode permissions (while the plan extension's /plan is active)
  *
- * Priority: If ANY claude settings exist, ONLY claude settings are used.
- * Claude and opencode settings are never merged together.
- * Within each format, settings are merged with deny > ask > allow priority.
+ * Priority: Settings are merged with deny > ask > allow priority.
  * If a tool is not in any list, it defaults to "ask".
  * edit and write tools are merged under the "edit" permission category.
  *

@@ -10,7 +10,6 @@ import os from "os";
 import path from "path";
 
 import type { AgentConfig, BackgroundTaskInfo, Message, SingleResult, UsageStats } from "./types";
-import { permissionsToClaudeSettings } from "./utils";
 
 let doSpawn: typeof spawn = spawn;
 
@@ -56,12 +55,6 @@ async function writePromptToTempFile(agentName: string, prompt: string): Promise
     return { dir: tmpDir, filePath };
 }
 
-function permissionsToClaudeSettingsJson(
-    permissions: Record<string, "allow" | "ask" | "deny">,
-): { permissions: { allow: string[]; ask: string[]; deny: string[] } } {
-    return permissionsToClaudeSettings(permissions);
-}
-
 function toolsToClaudeSettingsJson(
     tools: string[] | undefined,
     disallowedTools: string[] | undefined,
@@ -75,9 +68,7 @@ function toolsToClaudeSettingsJson(
 async function writeAgentPermissionsTempFile(
     agent: AgentConfig,
 ): Promise<{ dir: string; filePath: string } | null> {
-    const settings
-        = toolsToClaudeSettingsJson(agent.tools, agent.disallowedTools)
-            ?? (agent.permissions ? permissionsToClaudeSettingsJson(agent.permissions) : null);
+    const settings = toolsToClaudeSettingsJson(agent.tools, agent.disallowedTools);
     if (!settings) return null;
 
     const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-subagent-perms-"));

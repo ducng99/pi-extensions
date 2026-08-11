@@ -1,5 +1,3 @@
-import { stripJsoncComments } from "../../shared/jsonc-utils/index";
-
 // ============================================================================
 // Config Parsing
 // ============================================================================
@@ -14,10 +12,6 @@ export interface ParsedPermissions {
     ask: PermissionRule[];
     deny: PermissionRule[];
     additionalDirectories?: string[];
-}
-
-function normalizePattern(pattern: string): string {
-    return pattern;
 }
 
 export function parseClaudePermissionString(entry: string): { tool: string | null; pattern: string } {
@@ -56,57 +50,6 @@ export function parseClaudePermissionString(entry: string): { tool: string | nul
 
     // Normalize to lowercase for case-insensitive matching
     return { tool: tool.toLowerCase(), pattern };
-}
-
-export function parseOpencodePerms(content: string): ParsedPermissions {
-    const result: ParsedPermissions = { allow: [], ask: [], deny: [] };
-    let config: Record<string, unknown>;
-    try {
-        config = JSON.parse(stripJsoncComments(content));
-    }
-    catch {
-        return result;
-    }
-
-    const perms = config?.permission;
-    if (!perms || typeof perms !== "object") return result;
-    const typedPerms = perms as Record<string, unknown>;
-
-    // Extract external_directory entries as additionalDirectories
-    const externalDir = typedPerms.external_directory;
-    if (typeof externalDir === "object" && externalDir !== null) {
-        const dirs: string[] = [];
-        for (const [pattern, decision] of Object.entries(externalDir as Record<string, unknown>)) {
-            if (String(decision).toLowerCase() !== "allow") continue;
-            // Extract base path from glob pattern (e.g., "~/projects/**" -> "~/projects")
-            let dir = pattern;
-            if (dir.endsWith("/**")) {
-                dir = dir.slice(0, -3);
-            }
-            else if (dir.endsWith("/*")) {
-                dir = dir.slice(0, -2);
-            }
-            dirs.push(dir);
-        }
-        if (dirs.length > 0) {
-            result.additionalDirectories = dirs;
-        }
-    }
-
-    for (const [toolKey, patterns] of Object.entries(typedPerms)) {
-        // Skip external_directory as it's handled above
-        if (toolKey === "external_directory") continue;
-        if (typeof patterns !== "object" || patterns === null) continue;
-        const category = toolKey;
-
-        for (const [pattern, decision] of Object.entries(patterns)) {
-            const dec = String(decision).toLowerCase();
-            if (dec !== "allow" && dec !== "ask" && dec !== "deny") continue;
-            result[dec].push({ category, pattern: normalizePattern(pattern) });
-        }
-    }
-
-    return result;
 }
 
 export function parseClaudePerms(content: string): ParsedPermissions {

@@ -10,18 +10,6 @@ function getHomeDir(): string {
     return process.env.HOME ?? process.env.USERPROFILE ?? homedir();
 }
 
-export function globalOpencodePath(): string {
-    return join(getHomeDir(), ".config", "opencode", "opencode.jsonc");
-}
-
-export function projectOpencodePath(cwd: string): string | null {
-    const jsonc = join(cwd, ".opencode", "opencode.jsonc");
-    const json = join(cwd, ".opencode", "opencode.json");
-    if (existsSync(jsonc)) return jsonc;
-    if (existsSync(json)) return json;
-    return null;
-}
-
 export function globalClaudeSettingsPath(): string {
     return join(getHomeDir(), ".claude", "settings.json");
 }

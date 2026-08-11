@@ -2,9 +2,8 @@
  * Shadow Git Repository
  *
  * Git primitives and repo management for the file-rollback extension.
- * Mirrors opencode's snapshot git layer: a shadow repo with a tree-hash-based
- * snapshot store, no commits, project-keyed storage, and source-repo object
- * alternates for large repos.
+ * A shadow repo with a tree-hash-based snapshot store, no commits,
+ * project-keyed storage, and source-repo object alternates for large repos.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";

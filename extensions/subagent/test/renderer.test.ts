@@ -17,7 +17,6 @@ function mockBackgroundResult(tasks: BackgroundTaskInfo[]) {
         details: {
             mode: "background",
             projectClaudeAgentsDir: null,
-            projectOpencodeAgentsDir: null,
             results: [],
             backgroundTasks: tasks,
         } satisfies SubagentDetails,

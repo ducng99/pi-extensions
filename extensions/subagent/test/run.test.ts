@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { EventEmitter } from "events";
+import * as fs from "fs";
 
 import type { AgentConfig } from "../types";
 
@@ -104,6 +105,62 @@ describe("runSingleAgent", () => {
         if (!call) throw new Error("expected spawn call");
         const args = call[1];
         expect(args).not.toContain("--model");
+    });
+
+    test("writes claude-style permissions file from tools/disallowedTools", async () => {
+        let captured: unknown = null;
+        mockSpawn.mockImplementationOnce((_command, _args, options) => {
+            const env = (options as { env?: NodeJS.ProcessEnv }).env;
+            const permsPath = env?.["PI_SUBAGENT_PERMISSIONS_FILE"];
+            if (permsPath) {
+                captured = JSON.parse(fs.readFileSync(permsPath, "utf-8"));
+            }
+            const proc = new MockChildProcess();
+            setTimeout(() => {
+                proc.stdout.emit(
+                    "data",
+                    '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"hello"}],"usage":{"input":1,"output":1}}}\n',
+                );
+                proc.emit("close", 0);
+            }, 0);
+            return proc;
+        });
+
+        const restricted: AgentConfig = {
+            name: "Restricted",
+            description: "restricted agent",
+            source: "user",
+            filePath: "restricted.md",
+            systemPrompt: "",
+            tools: ["Read"],
+            disallowedTools: ["Edit", "Write"],
+        };
+        await runSingleAgent("/tmp", [...agents, restricted], "Restricted", "task", undefined, undefined, undefined, undefined, results => ({ results }));
+        expect(captured).toEqual({
+            permissions: {
+                allow: ["Read"],
+                ask: [],
+                deny: ["Edit", "Write"],
+            },
+        });
+    });
+
+    test("does not set permissions env when agent has no tools", async () => {
+        mockSpawn.mockImplementationOnce((_command, _args, options) => {
+            const env = (options as { env?: NodeJS.ProcessEnv }).env;
+            expect(env?.["PI_SUBAGENT_PERMISSIONS_FILE"]).toBeUndefined();
+            const proc = new MockChildProcess();
+            setTimeout(() => {
+                proc.stdout.emit(
+                    "data",
+                    '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"hi"}],"usage":{"input":1,"output":1}}}\n',
+                );
+                proc.emit("close", 0);
+            }, 0);
+            return proc;
+        });
+
+        await runSingleAgent("/tmp", agents, "Test", "task", undefined, undefined, undefined, undefined, results => ({ results }));
     });
 });
 

@@ -8,7 +8,7 @@ Pi coding agent extension project containing ten extensions and shared utilities
 
 ## Extensions
 
-- `extensions/tool-permissions` — Intercepts tool calls and checks permissions against claude/opencode settings files
+- `extensions/tool-permissions` — Intercepts tool calls and checks permissions against claude settings files
 - `extensions/ask-user-questions` — Custom TUI component for asking users multiple-choice questions
 - `extensions/subagent` — Spawns separate `pi` processes as specialized subagents with isolated context
 - `extensions/webfetch` — Fetches URLs, converts HTML→markdown via turndown, sanitizes through an isolated pi session
@@ -21,7 +21,7 @@ Pi coding agent extension project containing ten extensions and shared utilities
 - `extensions/shared/` — Reusable utilities:
   - `bash-parser` — Tree-sitter based bash command parser (requires WASM initialization via `initParser()`)
   - `tui-components` — Reusable TUI components (`PermissionSelector`, `InlineInput`, `NoInputInline`)
-  - `config-helpers` — Path helpers for claude/opencode config file locations
+  - `config-helpers` — Path helpers for claude config file locations
   - `jsonc-utils` — Strips JSONC comments
   - `pattern-matching` — Glob-style pattern matching with domain filtering support
   - `web-content-cache` — Caches fetched web content

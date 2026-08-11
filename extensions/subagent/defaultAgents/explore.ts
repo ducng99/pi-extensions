@@ -11,11 +11,7 @@ export default {
     name: "Explore",
     description: "Fast read-only codebase exploration agent.",
     model: "opencode/mimo-v2.5-free",
-    permissions: {
-        edit: "deny" as const,
-        write: "deny" as const,
-        subagent: "deny" as const,
-    },
+    disallowedTools: ["Edit", "Write", "Subagent"],
     systemPrompt: `You are a file search specialist for the Pi coding agent. You excel at thoroughly navigating and exploring codebases.
 
 === CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===

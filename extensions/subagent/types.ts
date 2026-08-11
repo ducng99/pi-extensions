@@ -4,10 +4,6 @@
 
 export type AgentScope = "user" | "project" | "both";
 
-export interface PermissionConfig {
-    [category: string]: "allow" | "ask" | "deny";
-}
-
 export type DefaultAgentDefinition = Omit<AgentConfig, "source" | "filePath">;
 
 export interface AgentConfig {
@@ -17,7 +13,6 @@ export interface AgentConfig {
     systemPrompt: string;
     source: "default" | "user" | "project";
     filePath: string;
-    permissions?: PermissionConfig;
     tools?: string[];
     disallowedTools?: string[];
 }
@@ -25,7 +20,6 @@ export interface AgentConfig {
 export interface AgentDiscoveryResult {
     agents: AgentConfig[];
     projectClaudeAgentsDir: string | null;
-    projectOpencodeAgentsDir: string | null;
 }
 
 export interface UsageStats {
@@ -65,7 +59,6 @@ export interface BackgroundTaskInfo {
 export interface SubagentDetails {
     mode: "single" | "background";
     projectClaudeAgentsDir: string | null;
-    projectOpencodeAgentsDir: string | null;
     results: SingleResult[];
     backgroundTasks?: BackgroundTaskInfo[];
 }
