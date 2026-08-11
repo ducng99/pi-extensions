@@ -35,6 +35,8 @@ type ToolDef = {
     ) => Promise<PlanToolResult>;
 };
 
+type PersistedEntry = { type: "custom"; customType: string; data?: unknown };
+
 function setupHarness() {
     let activeTools = ["read", "bash", "grep", "find", "ls", "ask_user_questions", "edit", "write", "webfetch", "websearch"];
     const tools = new Map<string, ToolDef>();
@@ -42,6 +44,8 @@ function setupHarness() {
     const listeners = new Map<string, (event: Record<string, unknown>, ctx: unknown) => void | Promise<void>>();
 
     const bus: ((data: unknown) => void)[] = [];
+    // Session entries persisted via pi.appendEntry, mirroring the session JSONL.
+    const entries: PersistedEntry[] = [];
 
     const fakePi = {
         registerTool: (t: ToolDef) => tools.set(t.name, t),
@@ -60,6 +64,9 @@ function setupHarness() {
         setActiveTools: (names: string[]) => {
             activeTools = [...names];
         },
+        appendEntry: (customType: string, data?: unknown) => {
+            entries.push({ type: "custom", customType, data });
+        },
         sendMessage: () => {},
         sendUserMessage: () => {},
     };
@@ -72,6 +79,7 @@ function setupHarness() {
         hasUI: true,
         mode: "tui",
         abort: () => {},
+        sessionManager: { getEntries: () => [...entries] },
         ui: {
             notify: () => {},
             setStatus: () => {},
@@ -93,6 +101,13 @@ function setupHarness() {
     return {
         togglePlan: (cwd: string) => commands.get("plan")!.handler("", ctx(cwd)),
         getActiveTools: () => activeTools,
+        setActiveTools: (names: string[]) => {
+            activeTools = [...names];
+        },
+        getEntries: () => [...entries],
+        setSessionEntries: (other: PersistedEntry[]) => {
+            entries.splice(0, entries.length, ...other);
+        },
         sessionStart: (cwd: string) => listeners.get("session_start")!({ type: "session_start", reason: "new" }, ctx(cwd)),
         executionEnd: (toolName: string, cwd: string) =>
             listeners.get("tool_result")!({ toolName }, ctx(cwd)),
@@ -153,15 +168,51 @@ describe("plan extension tools", () => {
         expect(h.selectCount()).toBe(2);
     });
 
-    test("no state persistence: session_start resets plan mode and restores tools", async () => {
+    test("plan mode persists in the session and is restored on session_start", async () => {
         const h = setupHarness();
         dir = await mkdtemp(join(tmpdir(), "plan-test-"));
         const before = h.getActiveTools();
         await h.togglePlan(dir);
-        expect(h.getActiveTools()).not.toEqual(before);
+        const planTools = h.getActiveTools();
+        expect(planTools).not.toEqual(before);
+
+        // The toggle persisted a plan:mode entry carrying the pre-plan-mode tools.
+        expect(h.getEntries()).toHaveLength(1);
+        expect(h.getEntries()[0]).toEqual({
+            type: "custom",
+            customType: "plan:mode",
+            data: { active: true, toolsBefore: before },
+        });
+
+        // Simulate an extension reload: a fresh harness (empty in-memory state)
+        // bound to the same persisted entries. /reload keeps the agent's current
+        // (plan) tool set active, so prime the fresh harness with plan tools.
+        const reloaded = setupHarness();
+        reloaded.setSessionEntries(h.getEntries());
+        reloaded.setActiveTools(planTools);
+        await reloaded.sessionStart(dir);
+        expect(reloaded.getActiveTools()).toEqual(planTools);
+
+        // Plan mode is fully functional after restore: write_plan works…
+        const res = await reloaded.executeTool("write_plan", { filename: "restored", content: "restored plan" }, dir);
+        expect(res.details.filename).toBe("restored.md");
+        // …and toggle-off restores the persisted pre-plan-mode tool set, not the
+        // plan tools that were active at reload time.
+        await reloaded.togglePlan(dir);
+        expect(reloaded.getActiveTools()).toEqual(before);
+        // Toggling off also records the new state in the session.
+        const last = reloaded.getEntries()[reloaded.getEntries().length - 1];
+        expect(last).toEqual({ type: "custom", customType: "plan:mode", data: { active: false } });
+    });
+
+    test("brand-new session without a plan:mode entry starts with plan mode off", async () => {
+        const h = setupHarness();
+        dir = await mkdtemp(join(tmpdir(), "plan-test-"));
 
         await h.sessionStart(dir);
-        expect(h.getActiveTools()).toEqual(before);
+        // No plan:mode entry → write_plan refuses to run.
+        const res = await h.executeTool("write_plan", { filename: "x", content: "y" }, dir);
+        expect(res.content[0]?.text ?? "").toContain("plan mode is not active");
     });
 
     test("createPlanPrompt renders the plan and resolves via the select list", () => {

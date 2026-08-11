@@ -10,7 +10,11 @@
  * "what next?" prompt (implement it, clear and restart, or keep chatting).
  * The tools themselves use pi's default tool-row rendering.
  *
- * Plan mode is in-memory only. Every session starts with plan mode off.
+ * Plan mode state is persisted to the session JSONL via `pi.appendEntry()`
+ * (`plan:mode` custom entries), so it survives extension reloads and session
+ * resumes. The latest `plan:mode` entry is the source of truth and is
+ * restored in `session_start` by scanning entries backwards. Brand-new
+ * sessions without a `plan:mode` entry start with plan mode off.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -25,9 +29,17 @@ import { PLAN_MODE_PERMISSIONS, PLAN_TOOL_NAMES, PLAN_WRITE_TOOLS } from "./tool
 import { normalizePlanFilename, plansDir } from "./utils";
 
 const STATUS_PLAN_MODE = "status:plan_mode";
+const PLAN_MODE_ENTRY_TYPE = "plan:mode";
+
+interface PlanModeEntryData {
+    active: boolean;
+    /** Active tool set captured when plan mode was toggled on, to restore on toggle off. */
+    toolsBefore?: string[];
+}
 
 export default function planExtension(pi: ExtensionAPI) {
-    // In-memory state. Always starts false for every session.
+    // In-memory mirror of the session's latest `plan:mode` entry. Restored on
+    // session_start; off by default for sessions without an entry.
     let planModeActive = false;
     let toolsBeforePlanMode: string[] = [];
 
@@ -36,6 +48,7 @@ export default function planExtension(pi: ExtensionAPI) {
         planModeActive = false;
         pi.setActiveTools(toolsBeforePlanMode);
         toolsBeforePlanMode = [];
+        pi.appendEntry(PLAN_MODE_ENTRY_TYPE, { active: false });
         pi.events.emit("plan_mode:deactivated", {});
         ctx.ui.setStatus(STATUS_PLAN_MODE, undefined);
 
@@ -44,6 +57,43 @@ export default function planExtension(pi: ExtensionAPI) {
             content: "Plan mode disabled. Full access restored.",
             display: true,
         });
+    }
+
+    /**
+     * Restore plan mode from the session's persisted `plan:mode` entries. Loops
+     * backwards from the newest entry so the latest one (the source of truth)
+     * is found immediately, without scanning the whole session.
+     */
+    function restorePlanModeFromSession(ctx: ExtensionContext): void {
+        const entries = ctx.sessionManager.getEntries();
+        for (let i = entries.length - 1; i >= 0; i--) {
+            const entry = entries[i];
+            if (!entry || entry.type !== "custom" || entry.customType !== PLAN_MODE_ENTRY_TYPE) {
+                continue;
+            }
+
+            const data = entry.data as PlanModeEntryData | undefined;
+            if (data?.active) {
+                // Prefer the persisted pre-plan-mode tool set: on an in-place
+                // /reload the active tools may still be the plan-mode set, so
+                // getActiveTools() is an unreliable fallback.
+                toolsBeforePlanMode = data.toolsBefore ?? pi.getActiveTools();
+                planModeActive = true;
+                pi.setActiveTools([...PLAN_TOOL_NAMES]);
+                pi.events.emit("plan_mode:activated", PLAN_MODE_PERMISSIONS);
+                ctx.ui.setStatus(STATUS_PLAN_MODE, ctx.ui.theme.fg("dim", "⏸ plan mode on"));
+            }
+            else {
+                planModeActive = false;
+                toolsBeforePlanMode = [];
+            }
+            return;
+        }
+
+        // No plan:mode entry (e.g. a brand-new session) — plan mode is off by
+        // default. Clear any stale in-memory state from an earlier session.
+        planModeActive = false;
+        toolsBeforePlanMode = [];
     }
 
     function togglePlanMode(ctx: ExtensionContext): void {
@@ -55,6 +105,7 @@ export default function planExtension(pi: ExtensionAPI) {
         toolsBeforePlanMode = pi.getActiveTools();
         pi.setActiveTools([...PLAN_TOOL_NAMES]);
         planModeActive = true;
+        pi.appendEntry(PLAN_MODE_ENTRY_TYPE, { active: true, toolsBefore: toolsBeforePlanMode });
         pi.events.emit("plan_mode:activated", PLAN_MODE_PERMISSIONS);
         ctx.ui.setStatus(STATUS_PLAN_MODE, ctx.ui.theme.fg("dim", "⏸ plan mode on"));
 
@@ -65,9 +116,14 @@ export default function planExtension(pi: ExtensionAPI) {
         });
     }
 
-    // No state persistence: every session starts with plan mode off.
+    // Restore persisted plan-mode state on startup/reload/resume. A brand-new
+    // session without a plan:mode entry resolves to plan mode off.
     pi.on("session_start", (_, ctx) => {
-        if (planModeActive) deactivatePlanMode(ctx);
+        restorePlanModeFromSession(ctx);
+    });
+
+    pi.on("resources_discover", (_, ctx) => {
+        restorePlanModeFromSession(ctx);
     });
 
     pi.on("tool_result", async (event, ctx) => {
@@ -131,8 +187,7 @@ export default function planExtension(pi: ExtensionAPI) {
         description: "Write a plan markdown file to .pi/plans/<filename>.md. Creates the .pi/plans directory if needed. Overwrites the file if it already exists.",
         promptSnippet: "Write or replace a planning markdown file under .pi/plans",
         promptGuidelines: [
-            "Use write_plan to record a plan under .pi/plans/<name>.md while in plan mode.",
-            "Pass a concise filename and the full markdown plan content.",
+            "Use write_plan to record a plan under .pi/plans/<name>.md while in plan mode. Pass a concise filename and the full markdown plan content.",
         ],
         parameters: WritePlanParams,
 
@@ -173,8 +228,7 @@ export default function planExtension(pi: ExtensionAPI) {
         description: "Edit an existing plan markdown file under .pi/plans by replacing old_text with new_text. Errors if old_text is not found, or if it matches more than once (ambiguous — refuses to edit).",
         promptSnippet: "Edit an existing plan markdown file under .pi/plans",
         promptGuidelines: [
-            "Use edit_plan (not edit/write) to update a plan file while plan mode is active.",
-            "old_text must match exactly and appear exactly once in the file; if it matches multiple times, edit_plan refuses to edit, so make old_text more specific.",
+            "Use edit_plan (not edit/write) to update a plan file while plan mode is active. old_text must match exactly and appear exactly once in the file",
         ],
         parameters: EditPlanParams,
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
