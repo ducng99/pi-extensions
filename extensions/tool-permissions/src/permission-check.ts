@@ -424,11 +424,14 @@ async function checkBashPermission(
         }
 
         // 4b. Allow rule match.
+        let allowMatched = false;
         for (const rule of merged.allow) {
             if (rule.category === category && matchPattern(rule.pattern, leafCmd.argString)) {
+                allowMatched = true;
                 break;
             }
         }
+        if (allowMatched) continue;
 
         // 4c. Default allowed bash commands (safe, cannot read file contents).
         if (leafCmd.args.length > 0 && DEFAULT_ALLOWED_BASH_COMMANDS.has(leafCmd.args[0]!)) {

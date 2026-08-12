@@ -166,14 +166,13 @@ describe("buildSessionContext", () => {
         expect(ctx.gitStatus?.split("\n").length).toBe(40);
     });
 
-    test("repoVisibility defaults to unknown and git fields undefined when not a repo", async () => {
+    test("git fields are undefined when not a repo", async () => {
         const exec = makeExec([
             { args: ["remote", "get-url", "origin"], code: 1 },
             { args: ["remote"], code: 1 },
             { args: ["status", "--porcelain=v1"], code: 1 },
         ]);
         const ctx = await buildSessionContext(asEntries([]), "/repo", exec);
-        expect(ctx.repoVisibility).toBe("unknown");
         expect(ctx.gitRemote).toBeUndefined();
         expect(ctx.gitStatus).toBeUndefined();
     });

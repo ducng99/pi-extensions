@@ -890,7 +890,7 @@ describe("checkPermission: automode classifier integration", () => {
         expect(classifyMock).not.toHaveBeenCalled();
     });
 
-    test("automode on: only unresolved sub-commands are classified", async () => {
+    test("automode on: classifier receives the whole command when any sub-command is unresolved", async () => {
         const perms = makePerms({});
         const result = await checkPermission(
             "bash",
@@ -899,10 +899,11 @@ describe("checkPermission: automode classifier integration", () => {
             undefined,
             () => true,
         );
-        // `echo hello` resolves via default-allowed; only `curl` is classified.
+        // `echo hello` resolves via default-allowed, but `curl` is unresolved, so
+        // the classifier is consulted once with the WHOLE command string.
         expect(result.decision).toBe("allow");
         expect(classifyMock).toHaveBeenCalledTimes(1);
-        expect(classifyMock.mock.calls[0]![0]).toBe("curl https://example.com");
+        expect(classifyMock.mock.calls[0]![0]).toBe("echo hello; curl https://example.com");
     });
 
     test("automode on: classifier receives the abort signal", async () => {
@@ -953,7 +954,7 @@ describe("checkPermission: automode classifier integration", () => {
         expect(classifyMock.mock.calls[0]![0]).toBe("echo $(curl https://example.com)");
     });
 
-    test("automode on: complex leaf is classified with its normalized arg string", async () => {
+    test("automode on: complex command is classified with the full raw command string", async () => {
         const perms = makePerms({});
         const result = await checkPermission(
             "bash",
@@ -962,11 +963,12 @@ describe("checkPermission: automode classifier integration", () => {
             undefined,
             () => true,
         );
-        // The complex leaf is classified once with its normalized arg string;
-        // `cat` is not default-allowed so classification decides the outcome.
+        // The complex heredoc command is classified once with the full raw
+        // command string; `cat` is not default-allowed so classification
+        // decides the outcome.
         expect(result.decision).toBe("allow");
         expect(classifyMock).toHaveBeenCalledTimes(1);
-        expect(classifyMock.mock.calls[0]![0]).toBe("cat <<EOF hello EOF");
+        expect(classifyMock.mock.calls[0]![0]).toBe("cat <<EOF\nhello\nEOF");
     });
 
     test("automode on: parse errors ask without consulting classifier", async () => {
