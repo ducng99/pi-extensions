@@ -6,7 +6,7 @@ export function createFooter(ctx: ExtensionContext, theme: Theme, footerData: Re
         invalidate() {},
 
         render(width: number): string[] {
-            const left = statusSection(footerData.getExtensionStatuses());
+            const left = statusSection(theme, footerData.getExtensionStatuses());
             const right = modelSection(ctx, theme) + theme.fg("dim", " • ") + contextSection(ctx, theme);
 
             const leftWidth = visibleWidth(left);
@@ -20,11 +20,11 @@ export function createFooter(ctx: ExtensionContext, theme: Theme, footerData: Re
     };
 }
 
-function statusSection(statuses: ReadonlyMap<string, string>) {
+function statusSection(theme: Theme, statuses: ReadonlyMap<string, string>) {
     let out = "";
 
     for (const [, value] of statuses) {
-        if (out) out += " • ";
+        if (out) out += theme.fg("dim", " • ");
         out += value;
     }
 
