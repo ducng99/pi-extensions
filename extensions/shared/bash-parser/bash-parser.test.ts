@@ -8,7 +8,6 @@ import { initParser, parseBashCommand } from "../bash-parser/index";
 function argStrings(cmd: string): string[] {
     const result = parseBashCommand(cmd);
     if (result.kind === "error") return ["__ERROR__"];
-    if (result.kind === "complex") return ["__COMPLEX__"];
     return result.commands.map(c => c.argString);
 }
 
@@ -104,8 +103,8 @@ describe("command separators", () => {
         expect(result.kind).toBe("commands");
         if (result.kind !== "commands") return;
         expect(result.commands).toEqual([
-            { argString: "cd /a", args: ["cd", "/a"] },
-            { argString: "bun build --outdir=/tmp/build 2>&1", args: ["bun", "build", "--outdir=/tmp/build"] },
+            { argString: "cd /a", args: ["cd", "/a"], isComplex: false },
+            { argString: "bun build --outdir=/tmp/build 2>&1", args: ["bun", "build", "--outdir=/tmp/build"], isComplex: false },
         ]);
     });
 });
@@ -117,19 +116,23 @@ describe("command separators", () => {
 describe("command substitutions", () => {
     test("$(...) is complex", () => {
         const result = parseBashCommand("echo $(cat .env)");
-        expect(result.kind).toBe("complex");
-        if (result.kind !== "complex") return;
-        expect(result.commands).toEqual([{ argString: "echo $(cat .env)", args: ["echo"] }]);
+        expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
+        expect(result.commands).toEqual([{ argString: "echo $(cat .env)", args: ["echo"], isComplex: true }]);
     });
 
     test("backtick is complex", () => {
         const result = parseBashCommand("echo `cat .env`");
-        expect(result.kind).toBe("complex");
+        expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
+        expect(result.commands.every(c => c.isComplex)).toBe(true);
     });
 
     test("nested command substitution is complex", () => {
         const result = parseBashCommand("echo $(echo $(cat .env))");
-        expect(result.kind).toBe("complex");
+        expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
+        expect(result.commands.every(c => c.isComplex)).toBe(true);
     });
 });
 
@@ -140,17 +143,19 @@ describe("command substitutions", () => {
 describe("subshells", () => {
     test("(cmd) | grep is a complex top-level command", () => {
         const result = parseBashCommand("(cat .env) | grep key");
-        expect(result.kind).toBe("complex");
-        if (result.kind !== "complex") return;
+        expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
         expect(result.commands).toEqual([
-            { argString: "(cat .env)", args: [] },
-            { argString: "grep key", args: ["grep", "key"] },
+            { argString: "(cat .env)", args: [], isComplex: true },
+            { argString: "grep key", args: ["grep", "key"], isComplex: false },
         ]);
     });
 
     test("subshell with multiple commands is complex", () => {
         const result = parseBashCommand("(ls; cat .env) | wc");
-        expect(result.kind).toBe("complex");
+        expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
+        expect(result.commands.some(c => c.isComplex)).toBe(true);
     });
 });
 
@@ -161,16 +166,18 @@ describe("subshells", () => {
 describe("find -exec and xargs", () => {
     test("find -exec is a complex top-level command", () => {
         const result = parseBashCommand("find . -name '*.ts' -exec cat {} \\;");
-        expect(result.kind).toBe("complex");
-        if (result.kind !== "complex") return;
+        expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
         expect(result.commands).toEqual([
-            { argString: "find . -name '*.ts' -exec cat {} \\;", args: ["find", ".", "-name", "'*.ts'", "-exec", "cat", "{}", "\\;"] },
+            { argString: "find . -name '*.ts' -exec cat {} \\;", args: ["find", ".", "-name", "'*.ts'", "-exec", "cat", "{}", "\\;"], isComplex: true },
         ]);
     });
 
     test("find -exec with multiple args is complex", () => {
         const result = parseBashCommand("find . -exec rm -rf {} \\;");
-        expect(result.kind).toBe("complex");
+        expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
+        expect(result.commands.every(c => c.isComplex)).toBe(true);
     });
 
     test("xargs extracts the piped command", () => {
@@ -189,28 +196,28 @@ describe("redirections", () => {
         const result = parseBashCommand("cat .env > output.txt");
         expect(result.kind).toBe("commands");
         if (result.kind !== "commands") return;
-        expect(result.commands).toEqual([{ argString: "cat .env > output.txt", args: ["cat", ".env"] }]);
+        expect(result.commands).toEqual([{ argString: "cat .env > output.txt", args: ["cat", ".env"], isComplex: false }]);
     });
 
     test("input redirection is kept", () => {
         const result = parseBashCommand("cat < input.txt");
         expect(result.kind).toBe("commands");
         if (result.kind !== "commands") return;
-        expect(result.commands).toEqual([{ argString: "cat < input.txt", args: ["cat"] }]);
+        expect(result.commands).toEqual([{ argString: "cat < input.txt", args: ["cat"], isComplex: false }]);
     });
 
     test("stderr redirection is kept", () => {
         const result = parseBashCommand("cat .env 2>/dev/null");
         expect(result.kind).toBe("commands");
         if (result.kind !== "commands") return;
-        expect(result.commands).toEqual([{ argString: "cat .env 2>/dev/null", args: ["cat", ".env"] }]);
+        expect(result.commands).toEqual([{ argString: "cat .env 2>/dev/null", args: ["cat", ".env"], isComplex: false }]);
     });
 
     test("append redirection is kept", () => {
         const result = parseBashCommand("cat .env >> output.txt");
         expect(result.kind).toBe("commands");
         if (result.kind !== "commands") return;
-        expect(result.commands).toEqual([{ argString: "cat .env >> output.txt", args: ["cat", ".env"] }]);
+        expect(result.commands).toEqual([{ argString: "cat .env >> output.txt", args: ["cat", ".env"], isComplex: false }]);
     });
 });
 
@@ -242,17 +249,23 @@ describe("quoting", () => {
 describe("complex cases fall back to ask", () => {
     test("process substitution <()", () => {
         const result = parseBashCommand("diff <(cat .env) <(cat .env.bak)");
-        expect(result.kind).toBe("complex");
+        expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
+        expect(result.commands.some(c => c.isComplex)).toBe(true);
     });
 
     test("process substitution >()", () => {
         const result = parseBashCommand("cat > >(tee log.txt)");
-        expect(result.kind).toBe("complex");
+        expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
+        expect(result.commands.some(c => c.isComplex)).toBe(true);
     });
 
     test("heredoc", () => {
         const result = parseBashCommand("cat <<EOF\nhello\nEOF");
-        expect(result.kind).toBe("complex");
+        expect(result.kind).toBe("commands");
+        if (result.kind !== "commands") return;
+        expect(result.commands.some(c => c.isComplex)).toBe(true);
     });
 });
 

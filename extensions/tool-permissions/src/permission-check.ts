@@ -359,19 +359,6 @@ async function checkBashPermission(
         }
     }
 
-    // Complex commands only get deny-rule checking; everything else is "ask".
-    if (parseResult.kind === "complex") {
-        if (isAutomodeOn?.()) {
-            const result = await classifyBashCommand(cmd, signal);
-            if (result.decision !== "allow") {
-                return result;
-            }
-        }
-        else {
-            return { decision: "ask", reason: REASON_BASH_COMPLEX };
-        }
-    }
-
     // 2. Ask
     for (const leafCmd of commands) {
         for (const rule of merged.ask) {
@@ -391,6 +378,19 @@ async function checkBashPermission(
         // 3. Out-of-bounds check for this command using the effective cwd.
         if (effectiveCwd && isCommandOutOfBounds(leafCmd.args, leafCmd.argString, effectiveCwd, additionalDirs)) {
             return { decision: "ask", reason: "⚠ Accessing outside allowed directories." };
+        }
+
+        // Complex leaves only get deny-rule checking (already done above); for
+        // everything else, ask — or consult the classifier in automode.
+        if (leafCmd.isComplex) {
+            if (isAutomodeOn?.()) {
+                const result = await classifyBashCommand(leafCmd.argString, signal);
+                if (result.decision !== "allow") {
+                    return result;
+                }
+                continue;
+            }
+            return { decision: "ask", reason: REASON_BASH_COMPLEX };
         }
 
         // 4a. Allow rule match.

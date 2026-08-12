@@ -6,11 +6,11 @@
 // commands for permission checking.
 //
 // Returns:
-//   - "commands": normal parseable top-level commands
-//   - "complex":  tree-sitter parsed the input, but it contains complex
-//                 structures (substitutions, heredocs, subshells, etc.) that
-//                 we do not recurse into. The top-level commands are still
-//                 returned so callers can check deny rules against them.
+//   - "commands": normal parseable top-level commands. Each leaf carries an
+//                 `isComplex` flag when it contains complex structures
+//                 (substitutions, heredocs, subshells, etc.) that we do not
+//                 recurse into, so callers can apply complex-command rules
+//                 per leaf instead of for the whole input.
 //   - "error":    tree-sitter could not parse the input at all.
 
 import path from "path";
@@ -26,6 +26,8 @@ export interface LeafCommand {
     argString: string;
     /** The raw argument tokens as tree-sitter extracted them */
     args: string[];
+    /** True if this leaf contains complex structures (subshells, heredocs, etc.) */
+    isComplex: boolean;
 }
 
 // Alias for backward compatibility with tests
@@ -33,7 +35,6 @@ export type ParsedCommand = LeafCommand;
 
 export type ParseResult
     = | { kind: "commands"; commands: LeafCommand[] }
-        | { kind: "complex"; commands: LeafCommand[] }
         | { kind: "error" };
 
 interface ExtractedCommand {
@@ -380,7 +381,7 @@ function extractTopLevelCommands(node: Node): ExtractedCommand[] {
  * Parse a bash command string using tree-sitter.
  *
  * @param input - The bash command string to parse
- * @returns ParseResult with top-level commands, or "complex" / "error"
+ * @returns ParseResult with top-level commands (each carrying `isComplex`), or "error"
  */
 export function parseBashCommand(input: string): ParseResult {
     const trimmed = input.trim();
@@ -406,19 +407,9 @@ export function parseBashCommand(input: string): ParseResult {
             return { kind: "error" };
         }
 
-        const commands = extractTopLevelCommands(tree.rootNode);
-        const isComplex = commands.some(cmd => cmd.isComplex);
-
-        if (isComplex) {
-            return {
-                kind: "complex",
-                commands: commands.map(cmd => ({ argString: cmd.argString, args: cmd.args })),
-            };
-        }
-
         return {
             kind: "commands",
-            commands: commands.map(cmd => ({ argString: cmd.argString, args: cmd.args })),
+            commands: extractTopLevelCommands(tree.rootNode),
         };
     }
     catch (error) {

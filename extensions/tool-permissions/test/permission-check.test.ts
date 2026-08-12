@@ -953,7 +953,7 @@ describe("checkPermission: automode classifier integration", () => {
         expect(classifyMock.mock.calls[0]![0]).toBe("echo $(curl https://example.com)");
     });
 
-    test("automode on: complex command with no default-allowed leaf re-consults classifier", async () => {
+    test("automode on: complex leaf is classified with its normalized arg string", async () => {
         const perms = makePerms({});
         const result = await checkPermission(
             "bash",
@@ -962,13 +962,11 @@ describe("checkPermission: automode classifier integration", () => {
             undefined,
             () => true,
         );
-        // First call: the whole complex command. It falls through, `cat` is not
-        // default-allowed, so the leaf is classified with its normalized arg
-        // string on a second call.
+        // The complex leaf is classified once with its normalized arg string;
+        // `cat` is not default-allowed so classification decides the outcome.
         expect(result.decision).toBe("allow");
-        expect(classifyMock).toHaveBeenCalledTimes(2);
-        expect(classifyMock.mock.calls[0]![0]).toBe("cat <<EOF\nhello\nEOF");
-        expect(classifyMock.mock.calls[1]![0]).toBe("cat <<EOF hello EOF");
+        expect(classifyMock).toHaveBeenCalledTimes(1);
+        expect(classifyMock.mock.calls[0]![0]).toBe("cat <<EOF hello EOF");
     });
 
     test("automode on: parse errors ask without consulting classifier", async () => {
