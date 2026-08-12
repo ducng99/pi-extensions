@@ -55,7 +55,7 @@ export default function planExtension(pi: ExtensionAPI) {
         pi.events.emit("plan_mode:deactivated", {});
         ctx.ui.setStatus(STATUS_PLAN_MODE, undefined);
 
-        ctx.ui.notify("Plan mode on", "info");
+        ctx.ui.notify("Plan mode off", "info");
 
         pi.sendMessage({
             customType: "plan",
@@ -123,7 +123,7 @@ export default function planExtension(pi: ExtensionAPI) {
         pi.events.emit("plan_mode:activated", PLAN_MODE_PERMISSIONS);
         ctx.ui.setStatus(STATUS_PLAN_MODE, ctx.ui.theme.fg("dim", "⏸ plan mode on"));
 
-        ctx.ui.notify("Plan mode off", "info");
+        ctx.ui.notify("Plan mode on", "info");
         pi.sendMessage({
             customType: "plan",
             content: "Plan mode enabled. Only read-only tools and plan writing are allowed. " + (includeGuide ? PLAN_GUIDE_PROMPT : "Follow the plan workflow you already have."),

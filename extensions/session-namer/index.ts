@@ -70,7 +70,7 @@ Your output must be:
 "look at @config.json" -> Config review
 "@App.tsx add dark mode toggle" -> Dark mode toggle in App
 </examples>`,
-            messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
+            messages: [{ role: "user", content: "Generate a title for the following prompt:\n\n" + prompt, timestamp: Date.now() }],
         }, {
             thinking: false,
             reasoningEffort: "none",

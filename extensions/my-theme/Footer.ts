@@ -6,15 +6,17 @@ export function createFooter(ctx: ExtensionContext, theme: Theme, footerData: Re
         invalidate() {},
 
         render(width: number): string[] {
+            const margin = "  ";
+
             const left = statusSection(theme, footerData.getExtensionStatuses());
             const right = modelSection(ctx, theme) + theme.fg("dim", " • ") + contextSection(ctx, theme);
 
             const leftWidth = visibleWidth(left);
             const rightWidth = visibleWidth(right);
-            const pad = " ".repeat(Math.max(1, width - leftWidth - rightWidth));
+            const pad = " ".repeat(Math.max(1, width - leftWidth - rightWidth - margin.length * 2));
 
             return [
-                truncateToWidth(left + pad + right, width),
+                truncateToWidth(margin + left + pad + right + margin, width),
             ];
         },
     };
@@ -24,7 +26,7 @@ function statusSection(theme: Theme, statuses: ReadonlyMap<string, string>) {
     let out = "";
 
     for (const [, value] of statuses) {
-        if (out) out += theme.fg("dim", " • ");
+        if (out) out += theme.fg("dim", " · ");
         out += value;
     }
 
