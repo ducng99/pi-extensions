@@ -3,6 +3,7 @@ import { isAbsolute, normalize, relative, resolve, sep } from "path";
 
 import { parseBashCommand } from "../../shared/bash-parser/index";
 import { matchPattern } from "../../shared/pattern-matching/index";
+import { classifyBashCommand } from "./classifier";
 import type { ParsedPermissions } from "./permission-parsing";
 import { DEFAULT_ALLOWED_BASH_COMMANDS, DEFAULT_ALLOWED_TOOLS, TOOL_CATEGORY } from "./tool-categories";
 
@@ -177,7 +178,7 @@ export function isOutOfBounds(
  */
 export type PermissionDecision
     = | { decision: "deny" }
-        | { decision: "allow" }
+        | { decision: "allow"; reason?: string }
         | { decision: "ask"; reason?: string };
 
 /** Reason shown when a bash command could not be parsed by tree-sitter. */
@@ -185,14 +186,16 @@ export const REASON_BASH_PARSE_ERROR = "Unable to parse the command";
 /** Reason shown when a bash command uses complex structures we don't analyze. */
 export const REASON_BASH_COMPLEX = "Command uses complex structures";
 
-export function checkPermission(
+export async function checkPermission(
     toolName: string,
     input: Record<string, unknown>,
     merged: ParsedPermissions,
-    cwd?: string,
-): PermissionDecision {
+    cwd: string = process.cwd(),
+    isAutomodeOn?: () => boolean,
+    signal?: AbortSignal,
+): Promise<PermissionDecision> {
     if (toolName === "bash") {
-        return checkBashPermission(input, merged, cwd);
+        return await checkBashPermission(input, merged, cwd, isAutomodeOn, signal);
     }
 
     // MCP tools are addressed with the format `mcp__<server>__<tool>` (the same
@@ -320,13 +323,16 @@ function checkMcpPermission(toolName: string, merged: ParsedPermissions): Permis
  *   3. Out-of-bounds → ask user
  *   4. Allow match   → resolved
  *   5. cd in-bounds  → resolved (auto-allow)
- *   6. Otherwise     → ask user
+ *   6. Query classifier
+ *   7. Otherwise     → ask user
  */
-function checkBashPermission(
+async function checkBashPermission(
     input: Record<string, unknown>,
     merged: ParsedPermissions,
-    cwd?: string,
-): PermissionDecision {
+    cwd: string,
+    isAutomodeOn?: () => boolean,
+    signal?: AbortSignal,
+): Promise<PermissionDecision> {
     const cmd = input.command;
     if (typeof cmd !== "string") return { decision: "ask" };
 
@@ -355,7 +361,15 @@ function checkBashPermission(
 
     // Complex commands only get deny-rule checking; everything else is "ask".
     if (parseResult.kind === "complex") {
-        return { decision: "ask", reason: REASON_BASH_COMPLEX };
+        if (isAutomodeOn?.()) {
+            const result = await classifyBashCommand(cmd, signal);
+            if (result.decision !== "allow") {
+                return result;
+            }
+        }
+        else {
+            return { decision: "ask", reason: REASON_BASH_COMPLEX };
+        }
     }
 
     // 2. Ask
@@ -400,6 +414,10 @@ function checkBashPermission(
         // 4c. Default allowed bash commands (safe, cannot read file contents).
         if (!resolved && leafCmd.args.length > 0 && DEFAULT_ALLOWED_BASH_COMMANDS.has(leafCmd.args[0]!)) {
             resolved = true;
+        }
+
+        if (!resolved && isAutomodeOn?.()) {
+            return await classifyBashCommand(leafCmd.argString, signal);
         }
 
         if (!resolved) {

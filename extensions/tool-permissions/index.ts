@@ -20,6 +20,7 @@ import type { ExtensionAPI, ToolCallEvent, ToolCallEventResult } from "@earendil
 
 import { initParser } from "../shared/bash-parser/index";
 import { type PermissionResult, PermissionSelector } from "../shared/tui-components/index";
+import { loadClassifier } from "./src/classifier";
 import { formatConfirmMessage } from "./src/confirmation-message";
 import { checkPermission, isMcpTool } from "./src/permission-check";
 import type { ParsedPermissions } from "./src/permission-parsing";
@@ -46,6 +47,8 @@ async function ensureParserInitialized(): Promise<void> {
 // ============================================================================
 
 export default function (pi: ExtensionAPI) {
+    let automodeEnabled = false;
+
     // Forward plan-mode toggling from the plan extension (over the shared event
     // bus) into the settings loader, which merges them like the subagent file.
     pi.events.on("plan_mode:activated", (data) => {
@@ -76,7 +79,7 @@ export default function (pi: ExtensionAPI) {
         const allSettings = collectAllSettings(ctx.cwd);
         const merged = mergePermissions(allSettings);
 
-        const decision = checkPermission(toolName, event.input as Record<string, unknown>, merged, ctx.cwd);
+        const decision = await checkPermission(toolName, event.input as Record<string, unknown>, merged, ctx.cwd, () => automodeEnabled, ctx.signal);
 
         if (decision.decision === "deny") {
             return {
@@ -86,7 +89,7 @@ export default function (pi: ExtensionAPI) {
         }
 
         if (decision.decision === "ask") {
-            const result = await ctx.ui.custom<PermissionResult>((tui, theme, keybindings, done) => {
+            const result = await ctx.ui.custom<PermissionResult>((_tui, theme, _keybindings, done) => {
                 const contextMsg = formatConfirmMessage(theme, toolName, event.input as Record<string, unknown>, ctx.cwd, decision.reason);
                 const title = `${contextMsg}\n\nAllow ${toolName}?`;
 
@@ -104,14 +107,33 @@ export default function (pi: ExtensionAPI) {
                 };
             }
 
-            ctx.abort();
             return {
                 block: true,
                 reason: `${toolName} was denied by user.`,
+                terminate: true,
             };
+        }
+
+        if (decision.decision === "allow" && decision.reason) {
+            ctx.ui.notify(decision.reason, "info");
         }
 
         // "allow" — proceed with execution
         return undefined;
+    });
+
+    pi.registerCommand("automode", {
+        description: "Toggle auto mode for checking bash commands",
+        async handler(_, ctx) {
+            try {
+                await loadClassifier(ctx.modelRegistry);
+
+                automodeEnabled = !automodeEnabled;
+                ctx.ui.setStatus("STATUS_AUTOMODE_ENABLED", automodeEnabled ? ctx.ui.theme.fg("warning", "⏵⏵ auto mode on") : undefined);
+            }
+            catch (err) {
+                ctx.ui.notify(err instanceof Error ? err.message : String(err), "error");
+            }
+        },
     });
 }
