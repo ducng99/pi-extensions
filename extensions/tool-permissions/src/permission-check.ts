@@ -5,6 +5,7 @@ import { parseBashCommand } from "../../shared/bash-parser/index";
 import { matchPattern } from "../../shared/pattern-matching/index";
 import { classifyBashCommand } from "./classifier";
 import type { ParsedPermissions } from "./permission-parsing";
+import type { ClassifierSessionContext } from "./session-context";
 import { DEFAULT_ALLOWED_BASH_COMMANDS, DEFAULT_ALLOWED_TOOLS, TOOL_CATEGORY } from "./tool-categories";
 
 // ============================================================================
@@ -186,6 +187,14 @@ export const REASON_BASH_PARSE_ERROR = "Unable to parse the command";
 /** Reason shown when a bash command uses complex structures we don't analyze. */
 export const REASON_BASH_COMPLEX = "Command uses complex structures";
 
+/**
+ * Builds the compact {@link ClassifierSessionContext} fed to the bash
+ * classifier. Async because it may run `git status` once. The provider is
+ * called lazily — only when a command actually reaches the classifier — so
+ * non-bash tool calls and rule-resolved bash commands pay nothing.
+ */
+type SessionContextProvider = () => Promise<ClassifierSessionContext>;
+
 export async function checkPermission(
     toolName: string,
     input: Record<string, unknown>,
@@ -193,9 +202,10 @@ export async function checkPermission(
     cwd: string = process.cwd(),
     isAutomodeOn?: () => boolean,
     signal?: AbortSignal,
+    sessionContextProvider?: SessionContextProvider,
 ): Promise<PermissionDecision> {
     if (toolName === "bash") {
-        return await checkBashPermission(input, merged, cwd, isAutomodeOn, signal);
+        return await checkBashPermission(input, merged, cwd, isAutomodeOn, signal, sessionContextProvider);
     }
 
     // MCP tools are addressed with the format `mcp__<server>__<tool>` (the same
@@ -332,6 +342,7 @@ async function checkBashPermission(
     cwd: string,
     isAutomodeOn?: () => boolean,
     signal?: AbortSignal,
+    sessionContextProvider?: SessionContextProvider,
 ): Promise<PermissionDecision> {
     const cmd = input.command;
     if (typeof cmd !== "string") return { decision: "ask" };
@@ -368,10 +379,26 @@ async function checkBashPermission(
         }
     }
 
+    // The session context snapshot is built once per command (lazily, on the
+    // first leaf that reaches the classifier) and reused across all leaves in
+    // this command — so a multi-leaf command issues a single `git status`.
+    let sessionCtx: ClassifierSessionContext | undefined;
+    let sessionCtxLoaded = false;
+    const getSessionCtx = async (): Promise<ClassifierSessionContext | undefined> => {
+        if (!sessionContextProvider) return undefined;
+        if (!sessionCtxLoaded) {
+            sessionCtx = await sessionContextProvider();
+            sessionCtxLoaded = true;
+        }
+        return sessionCtx;
+    };
+
     // 3. Out-of-bounds check + 4. Allow / cd auto-allow
     // Process commands in order so that `cd` changes the effective cwd for
     // subsequent relative paths.
     let effectiveCwd = cwd;
+    let shouldAllow: PermissionDecision = { decision: "allow" };
+
     for (const leafCmd of commands) {
         const additionalDirs = merged.additionalDirectories ?? [];
 
@@ -383,45 +410,40 @@ async function checkBashPermission(
         // Complex leaves only get deny-rule checking (already done above); for
         // everything else, ask — or consult the classifier in automode.
         if (leafCmd.isComplex) {
-            if (isAutomodeOn?.()) {
-                const result = await classifyBashCommand(leafCmd.argString, signal);
-                if (result.decision !== "allow") {
-                    return result;
-                }
-                continue;
-            }
-            return { decision: "ask", reason: REASON_BASH_COMPLEX };
+            shouldAllow = { decision: "ask", reason: REASON_BASH_COMPLEX };
+            break;
         }
 
-        // 4a. Allow rule match.
-        let resolved = false;
+        // 4a. `cd` auto-allow, and update the effective cwd for later commands.
+        if (effectiveCwd) {
+            const cdTarget = getCdTarget(leafCmd.args, effectiveCwd, additionalDirs);
+            if (cdTarget) {
+                effectiveCwd = cdTarget;
+                continue;
+            }
+        }
+
+        // 4b. Allow rule match.
         for (const rule of merged.allow) {
             if (rule.category === category && matchPattern(rule.pattern, leafCmd.argString)) {
-                resolved = true;
                 break;
             }
         }
 
-        // 4b. `cd` auto-allow, and update the effective cwd for later commands.
-        if (effectiveCwd) {
-            const cdTarget = getCdTarget(leafCmd.args, effectiveCwd, additionalDirs);
-            if (cdTarget) {
-                resolved = true;
-                effectiveCwd = cdTarget;
-            }
-        }
-
         // 4c. Default allowed bash commands (safe, cannot read file contents).
-        if (!resolved && leafCmd.args.length > 0 && DEFAULT_ALLOWED_BASH_COMMANDS.has(leafCmd.args[0]!)) {
-            resolved = true;
+        if (leafCmd.args.length > 0 && DEFAULT_ALLOWED_BASH_COMMANDS.has(leafCmd.args[0]!)) {
+            continue;
         }
 
-        if (!resolved && isAutomodeOn?.()) {
-            return await classifyBashCommand(leafCmd.argString, signal);
-        }
+        shouldAllow = { decision: "ask" };
+    }
 
-        if (!resolved) {
-            return { decision: "ask" };
+    if (shouldAllow.decision === "ask") {
+        if (isAutomodeOn?.()) {
+            return await classifyBashCommand(cmd, signal, await getSessionCtx());
+        }
+        else {
+            return { decision: "ask", reason: shouldAllow.reason };
         }
     }
 

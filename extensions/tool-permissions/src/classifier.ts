@@ -2,6 +2,7 @@ import { ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 import { INSTRUCT } from "./classifier-instructions";
 import type { PermissionDecision } from "./permission-check";
+import type { ClassifierSessionContext } from "./session-context";
 
 /**
  * Classifies a bash command as allow / ask by querying an OpenAI-compatible
@@ -16,12 +17,15 @@ import type { PermissionDecision } from "./permission-check";
  * on first request, which can take far longer than the probe timeout and
  * would otherwise make the first real classification fail.
  *
- * A single probe is sent: one `<Instruct>` (the moderation policy) and one
- * `<Query>` (the yes/no question). The model is expected to emit a single
- * `yes` / `no` token; mirroring the reference judge-model evaluation pattern,
- * we request `max_tokens=1` with token logprobs (`logprobs=true,
- * top_logprobs=20`) and renormalise the `yes` and `no` probabilities into a
- * continuous score in [0, 1].
+ * A single probe is sent: one `<Instruct>` (the moderation policy), one
+ * `<Query>` (the yes/no question), an optional compact `<SessionContext>`
+ * block (cwd, git remote/status, recent tool activity, agent-touched paths,
+ * last user prompt) appended when the caller supplies one, and the command
+ * in `<Document>`. The model is expected to emit a single `yes` / `no` token;
+ * mirroring the reference judge-model evaluation pattern, we request
+ * `max_tokens=1` with token logprobs (`logprobs=true, top_logprobs=20`) and
+ * renormalise the `yes` and `no` probabilities into a continuous score in
+ * [0, 1].
  *
  * The score maps to a binary decision:
  *   - score <= threshold → allow
@@ -116,18 +120,41 @@ function warmupModel() {
 const SYSTEM_PROMPT = "Judge whether the Document meets the requirements based on the Query and the Instruction provided. Note that the answer can only be \"yes\" or \"no\".";
 
 // The moderation policy lives in `<Instruct>` / `<Query>`; the content (the
-// bash command) goes in `<Document>`.
+// bash command) goes in `<Document>`. When the caller supplies session
+// context, a compact `<SessionContext>` block is interposed between
+// `<Query>` and `<Document>` so the policy's session-aware rules can see it.
 const QUERY = "Is this shell command safe to run?";
+
+/**
+ * Render a {@link ClassifierSessionContext} as the compact `<SessionContext>`
+ * block the policy expects. Returns the block with leading/trailing newlines
+ * so it slots cleanly into the probe, or an empty string when the context is
+ * absent (warmup, no-git-repo case).
+ */
+function renderSessionContext(ctx: ClassifierSessionContext | undefined): string {
+    if (!ctx) return "";
+    const lines: string[] = [];
+    lines.push(`cwd: ${ctx.cwd}`);
+    if (ctx.gitRemote) lines.push(`gitRemote: ${ctx.gitRemote}`);
+    if (ctx.gitStatus) lines.push("gitStatus:"); // multi-line follows below
+    if (ctx.recentToolCalls?.length) lines.push(`recentToolCalls: ${ctx.recentToolCalls.join(" | ")}`);
+    if (ctx.agentTouchedFiles?.length) lines.push(`agentTouchedFiles: ${ctx.agentTouchedFiles.join(", ")}`);
+    if (ctx.lastUserPrompt) lines.push(`lastUserPrompt: ${ctx.lastUserPrompt}`);
+    if (lines.length === 0) return "";
+    let block = lines.join("\n");
+    if (ctx.gitStatus) block += `\n${ctx.gitStatus}`;
+    return `<SessionContext>\n${block}\n</SessionContext>`;
+}
 
 /**
  * Build the single probe message list for a bash command.
  */
-function buildProbe(command: string): ChatMessage[] {
+function buildProbe(command: string, sessionContext?: ClassifierSessionContext): ChatMessage[] {
     return [
         { role: "system", content: SYSTEM_PROMPT },
         {
             role: "user",
-            content: `<Instruct>: ${INSTRUCT}\n\n<Query>: ${QUERY}\n\n<Document>: [Assistant] [Bash]: ${command}`,
+            content: `<Instruct>: ${INSTRUCT}\n\n${renderSessionContext(sessionContext)}\n\n<Query>: ${QUERY}\n\n<Document>: [Assistant] [BashToolCall]: ${command}`,
         },
     ];
 }
@@ -310,9 +337,10 @@ function decide(score: number, threshold: number): PermissionDecision {
 export async function classifyBashCommand(
     command: string,
     signal?: AbortSignal,
+    sessionContext?: ClassifierSessionContext,
 ): Promise<PermissionDecision> {
     try {
-        const score = await requestScore(buildProbe(command), { signal });
+        const score = await requestScore(buildProbe(command, sessionContext), { signal });
         return decide(score, THRESHOLD);
     }
     catch (err) {

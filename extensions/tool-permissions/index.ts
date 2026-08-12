@@ -24,6 +24,7 @@ import { loadClassifier } from "./src/classifier";
 import { formatConfirmMessage } from "./src/confirmation-message";
 import { checkPermission, isMcpTool } from "./src/permission-check";
 import type { ParsedPermissions } from "./src/permission-parsing";
+import { buildSessionContext } from "./src/session-context";
 import { collectAllSettings, mergePermissions, setPlanModePermissions } from "./src/settings-loading";
 import { TOOL_CATEGORY } from "./src/tool-categories";
 
@@ -79,7 +80,19 @@ export default function (pi: ExtensionAPI) {
         const allSettings = collectAllSettings(ctx.cwd);
         const merged = mergePermissions(allSettings);
 
-        const decision = await checkPermission(toolName, event.input as Record<string, unknown>, merged, ctx.cwd, () => automodeEnabled, ctx.signal);
+        // Derive the classifier's session context lazily (only built when the
+        // bash classifier is actually consulted). `getEntries()` is the session
+        // source of truth and already excludes the in-flight tool call (it
+        // hasn't been appended yet), so no self-exclusion logic is needed.
+        const decision = await checkPermission(
+            toolName,
+            event.input as Record<string, unknown>,
+            merged,
+            ctx.cwd,
+            () => automodeEnabled,
+            ctx.signal,
+            () => buildSessionContext(ctx.sessionManager.getEntries(), ctx.cwd, pi.exec),
+        );
 
         if (decision.decision === "deny") {
             return {
