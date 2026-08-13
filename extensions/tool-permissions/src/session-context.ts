@@ -84,14 +84,8 @@ function summarizeToolCall(name: string, args: Record<string, unknown>): string 
             break;
         case "edit":
         case "write":
-            arg = typeof args.file_path === "string"
-                ? args.file_path
-                : (typeof args.path === "string" ? args.path : "");
-            break;
         case "read":
-            arg = typeof args.path === "string"
-                ? args.path
-                : (typeof args.file_path === "string" ? args.file_path : "");
+            arg = typeof args.path === "string" ? args.path : "";
             break;
         case "ls":
         case "find":
@@ -108,12 +102,8 @@ function summarizeToolCall(name: string, args: Record<string, unknown>): string 
 
 /** Extract a touched file path from a read/edit/write toolCall. */
 function touchedFilePath(name: string, args: Record<string, unknown>): string | null {
-    if (name === "edit" || name === "write") {
-        const fp = args.file_path ?? args.path;
-        return typeof fp === "string" ? fp : null;
-    }
-    if (name === "read") {
-        const fp = args.path ?? args.file_path;
+    if (name === "edit" || name === "write" || name === "read") {
+        const fp = args.path;
         return typeof fp === "string" ? fp : null;
     }
     return null;

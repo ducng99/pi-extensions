@@ -65,8 +65,8 @@ describe("buildSessionContext", () => {
 
     test("agentTouchedFiles derives from read/edit/write toolCalls, deduped, capped at 30", async () => {
         const entries = asEntries([
-            assistantEntry([{ name: "write", arguments: { file_path: "src/a.ts" } }]),
-            assistantEntry([{ name: "edit", arguments: { file_path: "src/a.ts" } }]), // dup
+            assistantEntry([{ name: "write", arguments: { path: "src/a.ts" } }]),
+            assistantEntry([{ name: "edit", arguments: { path: "src/a.ts" } }]), // dup
             assistantEntry([{ name: "read", arguments: { path: "src/b.ts" } }]),
             assistantEntry([{ name: "bash", arguments: { command: "touch src/a.ts" } }]), // not touched
             assistantEntry([{ name: "ls", arguments: { path: "src" } }]), // not touched
@@ -112,10 +112,10 @@ describe("buildSessionContext", () => {
 
     test("scan stops at the latest compaction entry (older history is summarized)", async () => {
         const entries = asEntries([
-            assistantEntry([{ name: "write", arguments: { file_path: "old.ts" } }]),
+            assistantEntry([{ name: "write", arguments: { path: "old.ts" } }]),
             userEntry("ancient prompt"),
             compactionEntry(),
-            assistantEntry([{ name: "write", arguments: { file_path: "new.ts" } }]),
+            assistantEntry([{ name: "write", arguments: { path: "new.ts" } }]),
             userEntry("fresh prompt"),
         ]);
         const ctx = await buildSessionContext(entries, "/repo", makeExec([]));

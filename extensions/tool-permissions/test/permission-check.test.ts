@@ -154,7 +154,7 @@ describe("checkPermission: non-bash tools unchanged", () => {
 
     test("edit tool still works normally", async () => {
         const perms = makePerms({ allow: [{ category: "edit", pattern: "src/*" }] });
-        const result = await checkPermission("edit", { file_path: "src/main.ts" }, perms);
+        const result = await checkPermission("edit", { path: "src/main.ts" }, perms);
         expect(result.decision).toBe("allow");
     });
 });

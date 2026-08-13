@@ -5,17 +5,12 @@ export function formatConfirmMessage(theme: Theme, toolName: string, input: Reco
 
     switch (toolName) {
         case "edit":
-        case "write": {
-            const fp = input.file_path ?? input.path;
-            if (typeof fp === "string") {
-                lines.push(`Edit file: ${fp}`);
-            }
-            break;
-        }
+        case "write":
         case "read": {
-            const fp = input.path ?? input.file_path;
+            const fp = input.path;
             if (typeof fp === "string") {
-                lines.push(`Read file: ${fp}`);
+                const verb = toolName === "read" ? "Read" : "Edit";
+                lines.push(`${verb} file: ${fp}`);
             }
             break;
         }

@@ -78,12 +78,9 @@ function isOutOfBoundsPath(path: string, cwd: string, additionalDirs: string[]):
 function buildArgString(toolName: string, input: Record<string, unknown>): string {
     switch (toolName) {
         case "edit":
-        case "write": {
-            const fp = input.file_path ?? input.path;
-            return typeof fp === "string" ? fp : "";
-        }
+        case "write":
         case "read": {
-            const fp = input.path ?? input.file_path;
+            const fp = input.path;
             return typeof fp === "string" ? fp : "";
         }
         case "bash": {
@@ -134,21 +131,6 @@ function buildArgString(toolName: string, input: Record<string, unknown>): strin
     }
 }
 
-/**
- * Extract the file path from a non-bash tool's input (if applicable).
- */
-function extractFilePath(toolName: string, input: Record<string, unknown>): string | null {
-    if (toolName === "edit" || toolName === "write") {
-        const fp = input.file_path ?? input.path;
-        return typeof fp === "string" ? fp : null;
-    }
-    if (toolName === "read") {
-        const fp = input.path ?? input.file_path;
-        return typeof fp === "string" ? fp : null;
-    }
-    return null;
-}
-
 // ============================================================================
 // Directory Bounds Check
 // ============================================================================
@@ -168,7 +150,7 @@ export function isOutOfBounds(
 ): boolean {
     if (!FILE_PATH_TOOLS.has(toolName)) return false;
 
-    const filePath = extractFilePath(toolName, input);
+    const filePath = input.path as string;
     if (!filePath) return false;
     return isOutOfBoundsPath(filePath, cwd, additionalDirs);
 }
