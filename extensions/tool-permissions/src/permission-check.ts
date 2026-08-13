@@ -122,6 +122,13 @@ function buildArgString(toolName: string, input: Record<string, unknown>): strin
             const url = input.url;
             return typeof url === "string" ? url : "";
         }
+        case "subagent": {
+            // Return the name of the agent being triggered, so rules such as
+            // `Agent(Explore)` (parsed to category "subagent" with pattern "Explore")
+            // match against the invoked agent name.
+            const agent = input.agent;
+            return typeof agent === "string" ? agent : "";
+        }
         default:
             return "";
     }

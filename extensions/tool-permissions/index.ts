@@ -67,11 +67,6 @@ export default function (pi: ExtensionAPI) {
     pi.on("tool_call", async (event: ToolCallEvent, ctx): Promise<ToolCallEventResult | void> => {
         const toolName = event.toolName;
 
-        // Only intercept tools we have category mappings for, plus MCP tools
-        // (addressed as `mcp__<server>__<tool>` and checked by their own rules).
-        const category = TOOL_CATEGORY[toolName];
-        if (!category && !isMcpTool(toolName)) return undefined;
-
         // Ensure parser is initialized before checking permissions
         await ensureParserInitialized();
 

@@ -11,7 +11,8 @@ export default {
     name: "Explore",
     description: "Fast read-only codebase exploration agent.",
     model: "opencode/deepseek-v4-flash-free",
-    disallowedTools: ["Edit", "Write", "Subagent"],
+    tools: ["Read", "Grep", "Glob", "Bash(ls *)", "Bash(find *)", "Bash(grep *)", "Bash(rg *)"],
+    disallowedTools: ["Edit", "Write", "Agent"],
     systemPrompt: `You are a file search specialist. You excel at thoroughly navigating and exploring codebases.
 
 Your strengths:

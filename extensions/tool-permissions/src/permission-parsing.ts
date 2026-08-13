@@ -40,6 +40,10 @@ export function parseClaudePermissionString(entry: string): { tool: string | nul
         return { tool: "find", pattern };
     }
 
+    if (tool === "Agent") {
+        return { tool: "subagent", pattern };
+    }
+
     // Web tools mapping
     if (tool === "WebFetch") {
         return { tool: "webfetch", pattern };

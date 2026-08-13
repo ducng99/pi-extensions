@@ -10,10 +10,6 @@ export const TOOL_CATEGORY: Record<string, string> = {
     grep: "grep",
     find: "bash",
     ls: "bash",
-    subagent: "subagent",
-    ask_user_questions: "ask_user_questions",
-    webfetch: "webfetch",
-    websearch: "websearch",
 };
 
 // ============================================================================
@@ -51,11 +47,8 @@ export const DEFAULT_ALLOWED_BASH_COMMANDS = new Set([
     // Process / system info (read-only)
     "sleep",
     "date",
-    "whoami",
-    "hostname",
     "uname",
     "uptime",
-    "id",
     // Command lookup (read-only)
     "type",
     "which",

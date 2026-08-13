@@ -241,6 +241,54 @@ describe("checkPermission: default allowed tools", () => {
     });
 });
 
+describe("checkPermission: subagent agent-name matching", () => {
+    test("Agent(Explore) rule allows invoking the Explore agent", async () => {
+        const perms = makePerms({ allow: [{ category: "subagent", pattern: "Explore" }] });
+        const result = await checkPermission("subagent", { agent: "Explore" }, perms);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("Agent(*) wildcard allows any agent", async () => {
+        const perms = makePerms({ allow: [{ category: "subagent", pattern: "*" }] });
+        const result = await checkPermission("subagent", { agent: "research" }, perms);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("Agent(Explore) ask rule asks for the Explore agent", async () => {
+        const perms = makePerms({ ask: [{ category: "subagent", pattern: "Explore" }] });
+        const result = await checkPermission("subagent", { agent: "Explore" }, perms);
+        expect(result.decision).toBe("ask");
+    });
+
+    test("Agent(Explore) ask rule does not match a different agent", async () => {
+        // subagent is default-allowed, so a non-matching rule falls through to allow.
+        const perms = makePerms({ ask: [{ category: "subagent", pattern: "Explore" }] });
+        const result = await checkPermission("subagent", { agent: "researcher" }, perms);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("Agent(Explore) deny rule denies invoking the Explore agent", async () => {
+        const perms = makePerms({ deny: [{ category: "subagent", pattern: "Explore" }] });
+        const result = await checkPermission("subagent", { agent: "Explore" }, perms);
+        expect(result.decision).toBe("deny");
+    });
+
+    test("Agent(Explore) deny rule does not deny a different agent", async () => {
+        // subagent is default-allowed, so a non-matching deny falls through to allow.
+        const perms = makePerms({ deny: [{ category: "subagent", pattern: "Explore" }] });
+        const result = await checkPermission("subagent", { agent: "researcher" }, perms);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("Agent rule parsed from claude settings matches the agent name", async () => {
+        const perms = parseClaudePerms(JSON.stringify({
+            permissions: { allow: ["Agent(Explore)"] },
+        }));
+        const result = await checkPermission("subagent", { agent: "Explore" }, perms);
+        expect(result.decision).toBe("allow");
+    });
+});
+
 describe("checkPermission: bash redirection patterns", () => {
     test("allow `bun test *` permits `bun test 2>&1`", async () => {
         const perms = makePerms({ allow: [{ category: "bash", pattern: "bun test *" }] });
