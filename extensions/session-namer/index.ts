@@ -72,6 +72,7 @@ Your output must be:
 </examples>`,
             messages: [{ role: "user", content: "Generate a title for the following prompt:\n\n" + prompt, timestamp: Date.now() }],
         }, {
+            temperature: 0.05,
             thinking: false,
             reasoningEffort: "none",
             reasoning: "minimal",
@@ -86,7 +87,7 @@ Your output must be:
         }, "");
 
         const name = result.trim().replace(/^["']|["']$/g, "");
-        return { name: name };
+        return { name: name.length > 50 ? `${name.slice(0, 49)}…` : name };
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
