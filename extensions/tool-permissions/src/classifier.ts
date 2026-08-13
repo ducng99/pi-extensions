@@ -110,7 +110,7 @@ export async function loadClassifier(modelRegistry: ModelRegistry) {
  * tens of seconds with llama.cpp and blow the probe timeout).
  */
 function warmupModel() {
-    requestScore(buildProbe("echo warmup"), { timeoutMs: WARMUP_TIMEOUT_MS }).catch();
+    requestScore(buildProbe("echo warmup"), { timeoutMs: WARMUP_TIMEOUT_MS }).catch(() => {});
 }
 
 // ============================================================================
