@@ -448,6 +448,111 @@ describe("checkPermission: bash out-of-bounds paths", () => {
     });
 });
 
+describe("checkPermission: regex patterns that look like paths (grep/rg/sed)", () => {
+    const cwd = "/home/user/project";
+
+    test("grep pattern starting with / is not treated as a path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "grep *" }] });
+        const result = await checkPermission("bash", { command: "grep '/etc/passwd' src/main.ts" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("sed script starting with / is not treated as a path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "sed *" }] });
+        const result = await checkPermission("bash", { command: "sed '/etc/passwd/d' src/main.ts" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("rg pattern starting with / is not treated as a path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "rg *" }] });
+        const result = await checkPermission("bash", { command: "rg '/tmp/secret' src" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("grep -e pattern starting with / is not treated as a path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "grep *" }] });
+        const result = await checkPermission("bash", { command: "grep -e '/etc/passwd' src/main.ts" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("grep --regexp= pattern starting with / is not treated as a path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "grep *" }] });
+        const result = await checkPermission("bash", { command: "grep --regexp='/etc/passwd' src/main.ts" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("sed -e script starting with / is not treated as a path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "sed *" }] });
+        const result = await checkPermission("bash", { command: "sed -e '/o/d' src/main.ts" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("rg -e pattern starting with / is not treated as a path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "rg *" }] });
+        const result = await checkPermission("bash", { command: "rg -e '/tmp/secret' src" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("bundled -e pattern (grep -re) is not treated as a path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "grep *" }] });
+        const result = await checkPermission("bash", { command: "grep -re /etc/ src" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("grep with multiple -e patterns skips all pattern values", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "grep *" }] });
+        const result = await checkPermission("bash", { command: "grep -e foo -e /var/log src/main.ts" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("grep real file arguments are still bounds-checked", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "grep *" }] });
+        const result = await checkPermission("bash", { command: "grep foo /etc/passwd" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+    });
+
+    test("grep with -e treats all positionals as files", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "grep *" }] });
+        const result = await checkPermission("bash", { command: "grep -e foo /etc/passwd" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+    });
+
+    test("grep pattern file (-f) is still bounds-checked", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "grep *" }] });
+        const result = await checkPermission("bash", { command: "grep -f /etc/patterns src/main.ts" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+    });
+
+    test("rg --files has no pattern slot: positionals are paths", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "rg *" }] });
+        const result = await checkPermission("bash", { command: "rg --files /etc/passwd" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+    });
+
+    test("grep files after the pattern are still bounds-checked", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "grep *" }] });
+        const result = await checkPermission("bash", { command: "grep foo src/main.ts /etc/passwd" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+    });
+
+    test("grep pattern with in-bounds files is allowed", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "grep *" }] });
+        const result = await checkPermission(
+            "bash",
+            { command: "grep '/etc/passwd' src/main.ts src/other.ts" },
+            perms,
+            cwd,
+        );
+        expect(result.decision).toBe("allow");
+    });
+
+    test("non-pattern commands still treat absolute args as paths", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat /etc/passwd" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+    });
+});
+
 describe("checkPermission: bash `cd` auto-allow", () => {
     const cwd = "/home/user/project";
 
