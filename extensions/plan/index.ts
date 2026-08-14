@@ -101,6 +101,8 @@ export default function planExtension(pi: ExtensionAPI) {
         planModeActive = false;
         hasIncludedGuide = false;
         toolsBeforePlanMode = [];
+        pi.events.emit("plan_mode:deactivated", {});
+        ctx.ui.setStatus(STATUS_PLAN_MODE, undefined);
     }
 
     function togglePlanMode(ctx: ExtensionContext): void {
