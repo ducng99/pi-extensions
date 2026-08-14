@@ -136,13 +136,12 @@ function renderSessionContext(ctx: ClassifierSessionContext | undefined): string
     const lines: string[] = [];
     lines.push(`cwd: ${ctx.cwd}`);
     if (ctx.gitRemote) lines.push(`gitRemote: ${ctx.gitRemote}`);
-    if (ctx.gitStatus) lines.push("gitStatus:"); // multi-line follows below
     if (ctx.recentToolCalls?.length) lines.push(`recentToolCalls: ${ctx.recentToolCalls.join(" | ")}`);
     if (ctx.agentTouchedFiles?.length) lines.push(`agentTouchedFiles: ${ctx.agentTouchedFiles.join(", ")}`);
     if (ctx.lastUserPrompt) lines.push(`lastUserPrompt: ${ctx.lastUserPrompt}`);
+    if (ctx.gitStatus) lines.push(`gitStatus:\n${ctx.gitStatus}`);
     if (lines.length === 0) return "";
-    let block = lines.join("\n");
-    if (ctx.gitStatus) block += `\n${ctx.gitStatus}`;
+    const block = lines.join("\n");
     return `<SessionContext>\n${block}\n</SessionContext>`;
 }
 
