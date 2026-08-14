@@ -13,7 +13,10 @@ export const PLAN_WRITE_TOOLS = new Set(["write_plan", "edit_plan"]);
  * (bash defaults to "ask" when not explicitly allowed).
  */
 export const PLAN_MODE_PERMISSIONS: ParsedPermissions = {
-    allow: [],
+    allow: [
+        { category: "write_plan", pattern: "" },
+        { category: "edit_plan", pattern: "" },
+    ],
     ask: [],
     deny: [
         { category: "edit", pattern: "*" },
