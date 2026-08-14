@@ -22,11 +22,10 @@ import { initParser } from "../shared/bash-parser/index";
 import { type PermissionResult, PermissionSelector } from "../shared/tui-components/index";
 import { loadClassifier } from "./src/classifier";
 import { formatConfirmMessage } from "./src/confirmation-message";
-import { checkPermission, isMcpTool } from "./src/permission-check";
+import { checkPermission } from "./src/permission-check";
 import type { ParsedPermissions } from "./src/permission-parsing";
 import { buildSessionContext } from "./src/session-context";
 import { collectAllSettings, mergePermissions, setPlanModePermissions } from "./src/settings-loading";
-import { TOOL_CATEGORY } from "./src/tool-categories";
 
 let parserInitialized = false;
 let initPromise: Promise<void> | null = null;
@@ -134,9 +133,11 @@ export default function (pi: ExtensionAPI) {
         description: "Toggle auto mode for checking bash commands",
         async handler(_, ctx) {
             try {
-                await loadClassifier(ctx.modelRegistry);
-
                 automodeEnabled = !automodeEnabled;
+                if (automodeEnabled) {
+                    await loadClassifier(ctx.modelRegistry);
+                }
+
                 ctx.ui.setStatus("STATUS_AUTOMODE_ENABLED", automodeEnabled ? ctx.ui.theme.fg("warning", "⏵⏵ auto mode on") : undefined);
             }
             catch (err) {
