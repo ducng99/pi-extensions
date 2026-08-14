@@ -36,36 +36,49 @@ export async function sanitizeWithPiSession(content: string, prompt?: string, op
             ["opencode", "deepseek-v4-flash-free"],
             ["opencode", "mimo-v2.5-free"],
             ["opencode-go", "deepseek-v4-flash"],
-        ];
-        let model;
-        let modelIndex = 0;
-
-        do {
-            model = modelRuntime.getModel(models[modelIndex][0], models[modelIndex][1]);
-        } while (!model && ++modelIndex < models.length);
-
-        if (!model) {
-            throw new Error("No model available for sanitization");
-        }
+        ] as const;
 
         const builtPrompt = buildPrompt(content, prompt);
 
-        const response = await modelRuntime.complete(model, {
-            systemPrompt: SYSTEM_PROMPT,
-            messages: [{ role: "user", content: builtPrompt, timestamp: Date.now() }],
-        }, {
-            thinking: false,
-            reasoningEffort: "none",
-            reasoning: "minimal",
-            maxRetryDelayMs: 5000,
-            timeoutMs: 30_000,
-            signal: options?.signal,
-        });
+        let sanitized = false;
+        let lastError: unknown;
 
-        result = response.content.reduce((msg, cur) => {
-            if (cur.type === "text") msg += cur.text;
-            return msg;
-        }, "");
+        // Try each model in order: a model is skipped if it is unavailable, and
+        // retried with the next one if the completion request itself fails.
+        for (const [provider, modelId] of models) {
+            if (options?.signal?.aborted) throw new Error("Sanitization canceled");
+
+            const model = modelRuntime.getModel(provider, modelId);
+            if (!model) continue;
+
+            try {
+                const response = await modelRuntime.complete(model, {
+                    systemPrompt: SYSTEM_PROMPT,
+                    messages: [{ role: "user", content: builtPrompt, timestamp: Date.now() }],
+                }, {
+                    thinking: false,
+                    reasoningEffort: "none",
+                    reasoning: "minimal",
+                    maxRetryDelayMs: 5000,
+                    timeoutMs: 30_000,
+                    signal: options?.signal,
+                });
+
+                result = response.content.reduce((msg, cur) => {
+                    if (cur.type === "text") msg += cur.text;
+                    return msg;
+                }, "");
+                sanitized = true;
+                break;
+            }
+            catch (error) {
+                lastError = error;
+            }
+        }
+
+        if (!sanitized) {
+            throw lastError ?? new Error("No model available for sanitization");
+        }
     }
 
     const truncatedResult = truncateHead(result, { maxBytes: 1024 * 2, maxLines: 50 });
