@@ -96,11 +96,22 @@ export default function (pi: ExtensionAPI) {
         }
 
         if (decision.decision === "ask") {
-            const result = await ctx.ui.custom<PermissionResult>((_tui, theme, _keybindings, done) => {
+            const result = await ctx.ui.custom<PermissionResult>((tui, theme, _keybindings, done) => {
                 const contextMsg = formatConfirmMessage(theme, toolName, event.input as Record<string, unknown>, ctx.cwd, decision.reason);
-                const title = `${contextMsg}\n\nAllow ${toolName}?`;
+                const question = `Allow ${toolName}?`;
+                const rows = tui.terminal.rows;
 
-                return new PermissionSelector(title, done);
+                return new PermissionSelector(contextMsg, question, done, {
+                    maxTitleLines: Math.max(4, Math.min(12, Math.floor(rows * 0.35))),
+                    terminalRows: rows,
+                });
+            }, {
+                overlay: true,
+                overlayOptions: {
+                    row: "100%",
+                    width: "100%",
+                    margin: { top: 1, bottom: 1 },
+                },
             });
 
             if (result?.allow) {
