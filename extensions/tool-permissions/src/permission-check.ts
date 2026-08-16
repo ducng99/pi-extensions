@@ -1,3 +1,4 @@
+import { writeFile } from "fs/promises";
 import { homedir } from "os";
 import { isAbsolute, normalize, relative, resolve, sep } from "path";
 
@@ -7,6 +8,17 @@ import { classifyBashCommand } from "./classifier";
 import type { ParsedPermissions } from "./permission-parsing";
 import type { ClassifierSessionContext } from "./session-context";
 import { DEFAULT_ALLOWED_BASH_COMMANDS, DEFAULT_ALLOWED_TOOLS, TOOL_CATEGORY } from "./tool-categories";
+
+const homeDir = homedir();
+const LOG_PATH = normalize(`${homeDir}/pi/agent/tool-permission-bash.jsonl`);
+
+async function appendLog(entry: Record<string, unknown>) {
+    try {
+        const line = JSON.stringify(entry);
+        await writeFile(LOG_PATH, line + "\n", { flag: "a" });
+    }
+    catch { /* silently ignore log failures */ }
+}
 
 // ============================================================================
 // Path utilities
@@ -431,6 +443,19 @@ async function checkBashPermission(
     }
 
     if (shouldAllow.decision === "ask") {
+        // Log context + bash command for LLM training data
+        const sessionCtx = await getSessionCtx();
+        appendLog({
+            command: cmd,
+            cwd,
+            gitRemote: sessionCtx?.gitRemote,
+            gitStatus: sessionCtx?.gitStatus,
+            recentToolCalls: sessionCtx?.recentToolCalls,
+            agentTouchedFiles: sessionCtx?.agentTouchedFiles,
+            lastUserPrompt: sessionCtx?.lastUserPrompt,
+            category: "bash",
+            reason: shouldAllow.reason,
+        }).catch(() => {});
         if (isAutomodeOn?.()) {
             return await classifyBashCommand(cmd, signal, await getSessionCtx());
         }

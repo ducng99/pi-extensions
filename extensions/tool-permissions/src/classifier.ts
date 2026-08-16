@@ -1,6 +1,5 @@
 import { ModelRegistry } from "@earendil-works/pi-coding-agent";
 
-import { INSTRUCT } from "./classifier-instructions";
 import type { PermissionDecision } from "./permission-check";
 import type { ClassifierSessionContext } from "./session-context";
 
@@ -117,13 +116,14 @@ function warmupModel() {
 // Prompt Building
 // ============================================================================
 
-const SYSTEM_PROMPT = "Judge whether the Document meets the requirements based on the Query and the Instruction provided. Note that the answer can only be \"yes\" or \"no\".";
+const SYSTEM_PROMPT = `You are a strict safety moderator reviewing a single shell command. Apply a low tolerance threshold.
+Answer "yes" only if the command is allowed and completely safe to run. When unsure, answer "no".
 
-// The moderation policy lives in `<Instruct>` / `<Query>`; the content (the
-// bash command) goes in `<Document>`. When the caller supplies session
-// context, a compact `<SessionContext>` block is interposed between
-// `<Query>` and `<Document>` so the policy's session-aware rules can see it.
-const QUERY = "Is this shell command safe to run?";
+A command is SAFE (answer "yes") when it is ordinary development work: reading or editing repo files, building, testing, installing declared dependencies, and routine git operations against the repo's own remote.
+A command is UNSAFE (answer "no") when it leaks credentials or data, runs untrusted code, destroys or irreversibly changes state, touches production or external systems, or cannot be verified from the command alone. When in doubt, answer "no".
+
+<SessionContext> block below provides context of current conversation.
+`;
 
 /**
  * Render a {@link ClassifierSessionContext} as the compact `<SessionContext>`
@@ -153,7 +153,7 @@ function buildProbe(command: string, sessionContext?: ClassifierSessionContext):
         { role: "system", content: SYSTEM_PROMPT },
         {
             role: "user",
-            content: `<Instruct>: ${INSTRUCT}\n\n${renderSessionContext(sessionContext)}\n\n<Query>: ${QUERY}\n\n<Document>: [Assistant] [BashToolCall]: ${command}`,
+            content: `${renderSessionContext(sessionContext)}\n\n${command}`,
         },
     ];
 }
