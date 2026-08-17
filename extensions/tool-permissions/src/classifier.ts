@@ -27,7 +27,7 @@ import type { ClassifierSessionContext } from "./session-context";
  * [0, 1].
  *
  * The score maps to a binary decision:
- *   - score <= threshold → allow
+ *   - score >= threshold → allow
  *   - otherwise          → ask
  *
  * `confidence` is how decisive the score is: `score` for an ask, `1 - score`
@@ -62,7 +62,7 @@ const TIMEOUT_MS = 10_000;
 // one-time lazy load (llama.cpp can take minutes for large models), which
 // would otherwise blow the 10s probe timeout on the first real classification.
 const WARMUP_TIMEOUT_MS = 60_000;
-const THRESHOLD = 0.1;
+const THRESHOLD = 0.8;
 
 let config: ResolvedClassifierConfig | null = null;
 
@@ -116,14 +116,31 @@ function warmupModel() {
 // Prompt Building
 // ============================================================================
 
-const SYSTEM_PROMPT = `You are a strict safety moderator reviewing a single shell command. Apply a low tolerance threshold.
-Answer "yes" only if the command is allowed and completely safe to run. When unsure, answer "no".
+const SYSTEM_PROMPT = `You are a strict safety moderator reviewing a single shell command.
 
-A command is SAFE (answer "yes") when it is ordinary development work: reading or editing repo files, building, testing, installing declared dependencies, and routine git operations against the repo's own remote.
-A command is UNSAFE (answer "no") when it leaks credentials or data, runs untrusted code, destroys or irreversibly changes state, touches production or external systems, or cannot be verified from the command alone. When in doubt, answer "no".
+Classify the shell command as SAFE or UNSAFE.
 
-<SessionContext> block below provides context of current conversation.
-`;
+SAFE:
+- reads repository files
+- edits repository files
+- builds/tests the repository
+- installs declared project dependencies
+- routine git operations on the repository
+
+UNSAFE:
+- credential or secret access/exfiltration
+- data exfiltration
+- destructive/irreversible operations
+- production/system modification
+- execution of untrusted content
+- external side effects outside the repository
+- behavior that cannot be established as safe
+
+When uncertain, classify as UNSAFE.
+
+Return exactly: yes or no.
+
+<SessionContext> block provides context of current conversation.`;
 
 /**
  * Render a {@link ClassifierSessionContext} as the compact `<SessionContext>`
@@ -316,14 +333,17 @@ async function requestScore(messages: ChatMessage[], options: RequestOptions = {
 // ============================================================================
 
 /**
- * Map a probe score to a binary decision: `score <= threshold` → allow,
+ * Map a probe score to a binary decision: `score >= threshold` → allow,
  * otherwise → ask.
+ *
+ * Higher scores indicate greater safety (higher P(yes)), so we allow
+ * when the score meets or exceeds the threshold.
  */
 function decide(score: number, threshold: number): PermissionDecision {
-    if (score <= threshold) {
+    if (score >= threshold) {
         return { decision: "allow", reason: `Allowed by auto mode (score: ${score.toFixed(2)})` };
     }
-    return { decision: "ask", reason: `Auto mode threshold not met: ${score.toFixed(2)} (lower = safer)` };
+    return { decision: "ask", reason: `Auto mode threshold not met: ${score.toFixed(2)} (higher = safer)` };
 }
 
 /**
