@@ -28,7 +28,7 @@ const mockSpawn = mock((_command: string, _args: string[], _options: unknown) =>
     return proc;
 });
 
-const { runSingleAgent, getBackgroundTaskInfo, listBackgroundTasks, setSpawnForTests } = await import("../run");
+const { runAgent, getBackgroundTaskInfo, listBackgroundTasks, setSpawnForTests } = await import("../run");
 
 // Inject the mock spawner instead of mock.module("child_process"), which would
 // globally override the module and break sibling test files that use real spawn.
@@ -57,13 +57,13 @@ function getModelValue(args: string[]): string | undefined {
     return args[idx + 1];
 }
 
-describe("runSingleAgent", () => {
+describe("runAgent", () => {
     beforeEach(() => {
         mockSpawn.mockClear();
     });
 
     test("spawns a pi process and parses JSONL output", async () => {
-        const result = await runSingleAgent("/tmp", agents, "Test", "say hello", undefined, undefined, undefined, undefined, results => ({ results }));
+        const result = await runAgent("/tmp", agents, "Test", "say hello", undefined, undefined, undefined, undefined, undefined, results => ({ results }));
         expect(result.agent).toBe("Test");
         expect(result.agentSource).toBe("user");
         expect(result.exitCode).toBe(0);
@@ -77,7 +77,7 @@ describe("runSingleAgent", () => {
     });
 
     test("returns an error for an unknown agent", async () => {
-        const result = await runSingleAgent("/tmp", agents, "Missing", "task", undefined, undefined, undefined, undefined, results => ({ results }));
+        const result = await runAgent("/tmp", agents, "Missing", "task", undefined, undefined, undefined, undefined, undefined, results => ({ results }));
         expect(result.exitCode).toBe(1);
         expect(result.stderr).toContain("Unknown agent");
     });
@@ -91,7 +91,7 @@ describe("runSingleAgent", () => {
             systemPrompt: "",
             model: "anthropic/claude-sonnet-4-20250514",
         };
-        await runSingleAgent("/tmp", [...agents, modelAgent], "ModelAgent", "task", undefined, undefined, undefined, undefined, results => ({ results }));
+        await runAgent("/tmp", [...agents, modelAgent], "ModelAgent", "task", undefined, undefined, undefined, undefined, undefined, results => ({ results }));
         const call = mockSpawn.mock.calls[0];
         if (!call) throw new Error("expected spawn call");
         const args = call[1];
@@ -100,11 +100,36 @@ describe("runSingleAgent", () => {
     });
 
     test("skips model flag when agent model is inherit", async () => {
-        await runSingleAgent("/tmp", agents, "Test", "task", undefined, undefined, undefined, undefined, results => ({ results }));
+        await runAgent("/tmp", agents, "Test", "task", undefined, undefined, undefined, undefined, undefined, results => ({ results }));
         const call = mockSpawn.mock.calls[0];
         if (!call) throw new Error("expected spawn call");
         const args = call[1];
         expect(args).not.toContain("--model");
+    });
+
+    test("modelOverride takes precedence over agent's configured model", async () => {
+        const modelAgent: AgentConfig = {
+            name: "ModelAgent",
+            description: "Model agent",
+            source: "user",
+            filePath: "model.md",
+            systemPrompt: "",
+            model: "anthropic/claude-sonnet-4-20250514",
+        };
+        const result = await runAgent("/tmp", [...agents, modelAgent], "ModelAgent", "task", "openai/gpt-5", undefined, undefined, undefined, undefined, results => ({ results }));
+        const call = mockSpawn.mock.calls[0];
+        if (!call) throw new Error("expected spawn call");
+        const args = call[1];
+        expect(getModelValue(args)).toBe("openai/gpt-5");
+        expect(result.model).toBe("openai/gpt-5");
+    });
+
+    test("modelOverride sets model flag even when agent has no configured model", async () => {
+        await runAgent("/tmp", agents, "Test", "task", "openai/gpt-5", undefined, undefined, undefined, undefined, results => ({ results }));
+        const call = mockSpawn.mock.calls[0];
+        if (!call) throw new Error("expected spawn call");
+        const args = call[1];
+        expect(getModelValue(args)).toBe("openai/gpt-5");
     });
 
     test("writes claude-style permissions file from tools/disallowedTools", async () => {
@@ -135,7 +160,7 @@ describe("runSingleAgent", () => {
             tools: ["Read"],
             disallowedTools: ["Edit", "Write"],
         };
-        await runSingleAgent("/tmp", [...agents, restricted], "Restricted", "task", undefined, undefined, undefined, undefined, results => ({ results }));
+        await runAgent("/tmp", [...agents, restricted], "Restricted", "task", undefined, undefined, undefined, undefined, undefined, results => ({ results }));
         expect(captured).toEqual({
             permissions: {
                 allow: ["Read"],
@@ -160,7 +185,7 @@ describe("runSingleAgent", () => {
             return proc;
         });
 
-        await runSingleAgent("/tmp", agents, "Test", "task", undefined, undefined, undefined, undefined, results => ({ results }));
+        await runAgent("/tmp", agents, "Test", "task", undefined, undefined, undefined, undefined, undefined, results => ({ results }));
     });
 });
 

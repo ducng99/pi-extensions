@@ -13,4 +13,9 @@ export const SubagentParams = Type.Object({
             default: false,
         }),
     ),
+    model: Type.Optional(
+        Type.String({
+            description: "Model to use for this agent, in the format \"<provider>/<model>\". Only set this if the user explicitly specifies a model to use; otherwise omit it and let the agent's configured model be used.",
+        }),
+    ),
 });

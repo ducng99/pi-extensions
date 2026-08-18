@@ -10,7 +10,7 @@ import fs from "fs";
 
 import { discoverAgents } from "./agents";
 import { renderCall, renderResult } from "./renderer";
-import { runAgentInBackground, runSingleAgent } from "./run";
+import { runAgent, runAgentInBackground } from "./run";
 import { SubagentParams } from "./schema";
 import type { BackgroundTaskInfo, SingleResult, SubagentDetails } from "./types";
 import { getFinalOutput, getResultOutput, isFailedResult } from "./utils";
@@ -73,7 +73,7 @@ If the target is already known, use the direct tool: Read for a known path, grep
 - Don't race: after launching a background agent, you know nothing about its results. Never fabricate or predict them in any format — not as prose, summary, or structured output. The completion notification arrives in a later turn; it is never
 something you write yourself. If the user asks before it lands, say the agent is still running — give status, not a guess.
 - A new Agent call starts a fresh agent with no memory of prior runs, so the prompt must be self-contained.
-- Each agent type's model, reasoning effort, and tool access are set in its definition (.claude/agents/*.md frontmatter, or the SDK agents option); the model parameter here overrides the definition for this one call.
+- Each agent type's model, reasoning effort, and tool access are set in its definition (.claude/agents/*.md frontmatter, or the SDK agents option); the model parameter here overrides the definition for this one call. Only pass it if the user explicitly specifies which model to use.
 - Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since a fresh agent is not aware of the user's intent
 - If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first.
 - If the user specifies that they want you to run agents "in parallel", you MUST send a single message with multiple Agent tool use content blocks. For example, if you need to launch both a build-validator agent and a test-runner agent in parallel,
@@ -140,7 +140,7 @@ paths, line numbers, what specifically to change.
             }
 
             if (params.runInBackground) {
-                const bg = await runAgentInBackground(ctx.cwd, agents, params.agent, params.task, undefined);
+                const bg = await runAgentInBackground(ctx.cwd, agents, params.agent, params.task, undefined, params.model);
                 if ("error" in bg) {
                     return {
                         content: [{ type: "text", text: bg.error }],
@@ -242,11 +242,12 @@ paths, line numbers, what specifically to change.
                 };
             }
 
-            const result = await runSingleAgent(
+            const result = await runAgent(
                 ctx.cwd,
                 agents,
                 params.agent,
                 params.task,
+                params.model,
                 undefined,
                 undefined,
                 signal,

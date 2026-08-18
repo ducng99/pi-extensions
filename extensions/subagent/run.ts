@@ -90,11 +90,12 @@ export type OnUpdateCallback = (partial: {
     details: { results: SingleResult[] };
 }) => void;
 
-export async function runSingleAgent(
+export async function runAgent(
     defaultCwd: string,
     agents: AgentConfig[],
     agentName: string,
     task: string,
+    modelOverride: string | undefined,
     cwd: string | undefined,
     step: number | undefined,
     signal: AbortSignal | undefined,
@@ -118,7 +119,8 @@ export async function runSingleAgent(
     }
 
     const args: string[] = ["--mode", "json", "-p", "--no-session"];
-    if (agent.model && agent.model !== "inherit") args.push("--model", agent.model);
+    const effectiveModel = modelOverride || agent.model;
+    if (effectiveModel && effectiveModel !== "inherit") args.push("--model", effectiveModel);
 
     let tmpPromptDir: string | null = null;
     let tmpPromptPath: string | null = null;
@@ -143,7 +145,7 @@ export async function runSingleAgent(
         messages: [],
         stderr: "",
         usage,
-        model: agent.model,
+        model: modelOverride || agent.model,
         step,
     };
 
@@ -361,6 +363,7 @@ export async function runAgentInBackground(
     agentName: string,
     task: string,
     cwd: string | undefined,
+    modelOverride?: string,
 ): Promise<BackgroundTaskHandle | { error: string }> {
     const agent = agents.find(a => a.name === agentName);
     if (!agent) {
@@ -371,7 +374,8 @@ export async function runAgentInBackground(
     cleanupOldBackgroundTaskDirs();
 
     const args: string[] = ["--mode", "json", "-p", "--no-session"];
-    if (agent.model && agent.model !== "inherit") args.push("--model", agent.model);
+    const effectiveModel = modelOverride || agent.model;
+    if (effectiveModel && effectiveModel !== "inherit") args.push("--model", effectiveModel);
 
     const env: NodeJS.ProcessEnv = { ...process.env };
 
