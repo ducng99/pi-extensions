@@ -181,7 +181,7 @@ describe("plan extension tools", () => {
         expect(h.getEntries()[0]).toEqual({
             type: "custom",
             customType: "plan:mode",
-            data: { active: true, toolsBefore: before },
+            data: { active: true, toolsBefore: before, includedGuide: true },
         });
 
         // Simulate an extension reload: a fresh harness (empty in-memory state)
@@ -202,7 +202,7 @@ describe("plan extension tools", () => {
         expect(reloaded.getActiveTools()).toEqual(before);
         // Toggling off also records the new state in the session.
         const last = reloaded.getEntries()[reloaded.getEntries().length - 1];
-        expect(last).toEqual({ type: "custom", customType: "plan:mode", data: { active: false } });
+        expect(last).toEqual({ type: "custom", customType: "plan:mode", data: { active: false, includedGuide: false } });
     });
 
     test("brand-new session without a plan:mode entry starts with plan mode off", async () => {

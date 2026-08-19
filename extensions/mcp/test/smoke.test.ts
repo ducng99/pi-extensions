@@ -32,7 +32,7 @@ describe("mcp extension factory", () => {
         expect(tools).toContain("mcp_list_prompts");
         expect(tools).toContain("mcp_get_prompt");
         expect(commands).toContain("mcp");
-        expect(events.has("session_start")).toBe(true);
+        expect(events.has("resources_discover")).toBe(true);
         expect(events.has("session_shutdown")).toBe(true);
     });
 });

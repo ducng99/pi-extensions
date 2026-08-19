@@ -49,7 +49,7 @@ export default function planExtension(pi: ExtensionAPI) {
     function deactivatePlanMode(ctx: ExtensionContext): void {
         if (!planModeActive) return;
         planModeActive = false;
-        pi.setActiveTools(toolsBeforePlanMode);
+        pi.setActiveTools(excludePlanOnlyTools(toolsBeforePlanMode));
         toolsBeforePlanMode = [];
         pi.appendEntry(PLAN_MODE_ENTRY_TYPE, { active: false, includedGuide: false } satisfies PlanModeEntryData);
         pi.events.emit("plan_mode:deactivated", {});
@@ -92,6 +92,7 @@ export default function planExtension(pi: ExtensionAPI) {
             else {
                 planModeActive = false;
                 toolsBeforePlanMode = [];
+                excludePlanOnlyToolsFromActive();
             }
             return;
         }
@@ -103,6 +104,28 @@ export default function planExtension(pi: ExtensionAPI) {
         toolsBeforePlanMode = [];
         pi.events.emit("plan_mode:deactivated", {});
         ctx.ui.setStatus(STATUS_PLAN_MODE, undefined);
+        excludePlanOnlyToolsFromActive();
+    }
+
+    /**
+     * Remove plan-only tools (`write_plan` / `edit_plan`) from a tool name
+     * list. `pi-coding-agent` bakes every extension-registered tool into the
+     * active set by default (`includeAllExtensionTools: true` on session
+     * build/refresh), so these two tools must be explicitly stripped out
+     * whenever plan mode is not active — otherwise they'd stay callable
+     * outside of plan mode.
+     */
+    function excludePlanOnlyTools(toolNames: string[]): string[] {
+        return toolNames.filter(name => !PLAN_WRITE_TOOLS.has(name));
+    }
+
+    /** Prune plan-only tools from the *current* active tool set, in place. */
+    function excludePlanOnlyToolsFromActive(): void {
+        const current = pi.getActiveTools();
+        const filtered = excludePlanOnlyTools(current);
+        if (filtered.length !== current.length) {
+            pi.setActiveTools(filtered);
+        }
     }
 
     function togglePlanMode(ctx: ExtensionContext): void {
