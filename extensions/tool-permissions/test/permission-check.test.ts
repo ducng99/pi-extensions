@@ -663,6 +663,22 @@ describe("checkPermission: bash `cd` auto-allow", () => {
         expect(result.decision).toBe("ask");
     });
 
+    test("auto-allows `cd` into a subdir then back up to the original cwd (`cd sub && ... && cd ../..`)", async () => {
+        const perms = makePerms({
+            allow: [{ category: "bash", pattern: "git stash*" }, { category: "bash", pattern: "bunx tsc*" }],
+        });
+        const result = await checkPermission(
+            "bash",
+            {
+                command:
+                    "cd /home/user/project && git stash && cd src/components && bunx tsc --noEmit -p . ; cd ../.. && git stash pop",
+            },
+            perms,
+            cwd,
+        );
+        expect(result.decision).toBe("allow");
+    });
+
     test("`cd` updates effective cwd for subsequent relative paths", async () => {
         const perms = makePerms({
             allow: [{ category: "bash", pattern: "bun build *" }],

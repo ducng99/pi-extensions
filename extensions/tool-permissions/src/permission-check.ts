@@ -68,16 +68,25 @@ function isInsideDir(resolvedPath: string, dir: string): boolean {
 }
 
 /**
- * Check if a single path is outside cwd and all additional directories.
+ * Check if a single path is outside the allowed boundary and all additional
+ * directories.
+ *
+ * `resolveCwd` and `boundaryCwd` are deliberately distinct: `resolveCwd` is
+ * only used to resolve *relative* path arguments (e.g. the effective cwd
+ * after tracking `cd`s within a command chain), while `boundaryCwd` (and
+ * `additionalDirs`) is the fixed set of directories the path must land
+ * inside. Using the effective cwd as the boundary too would incorrectly flag
+ * `cd ../..` as out-of-bounds when it merely returns to the original
+ * (allowed) session cwd after having `cd`'d into a subdirectory.
  */
-function isOutOfBoundsPath(path: string, cwd: string, additionalDirs: string[]): boolean {
-    const resolvedPath = resolveArgPath(path, cwd);
-    const resolvedCwd = normalize(resolve(cwd));
+function isOutOfBoundsPath(path: string, resolveCwd: string, boundaryCwd: string, additionalDirs: string[]): boolean {
+    const resolvedPath = resolveArgPath(path, resolveCwd);
+    const resolvedBoundaryCwd = normalize(resolve(boundaryCwd));
 
-    if (isInsideDir(resolvedPath, resolvedCwd)) return false;
+    if (isInsideDir(resolvedPath, resolvedBoundaryCwd)) return false;
 
     for (const dir of additionalDirs) {
-        if (isInsideDir(resolvedPath, resolveDir(dir, cwd))) return false;
+        if (isInsideDir(resolvedPath, resolveDir(dir, boundaryCwd))) return false;
     }
 
     return true;
@@ -164,7 +173,7 @@ export function isOutOfBounds(
 
     const filePath = input.path as string;
     if (!filePath) return false;
-    return isOutOfBoundsPath(filePath, cwd, additionalDirs);
+    return isOutOfBoundsPath(filePath, cwd, cwd, additionalDirs);
 }
 
 // ============================================================================
@@ -396,15 +405,20 @@ async function checkBashPermission(
 
     // 3. Out-of-bounds check + 4. Allow / cd auto-allow
     // Process commands in order so that `cd` changes the effective cwd for
-    // subsequent relative paths.
+    // subsequent relative paths. The *boundary* (`cwd`) stays fixed at the
+    // original session cwd throughout — only the base used to resolve
+    // relative paths (`effectiveCwd`) tracks `cd`s, so moving back up the
+    // tree (e.g. `cd sub && ... && cd ../..`) is correctly recognized as
+    // staying within bounds.
     let effectiveCwd = cwd;
     let shouldAllow: PermissionDecision = { decision: "allow" };
 
     for (const leafCmd of commands) {
         const additionalDirs = merged.additionalDirectories ?? [];
 
-        // 3. Out-of-bounds check for this command using the effective cwd.
-        if (effectiveCwd && isCommandOutOfBounds(leafCmd.args, leafCmd.argString, effectiveCwd, additionalDirs)) {
+        // 3. Out-of-bounds check for this command using the effective cwd to
+        // resolve relative paths, but the original session cwd as the bound.
+        if (effectiveCwd && isCommandOutOfBounds(leafCmd.args, leafCmd.argString, effectiveCwd, cwd, additionalDirs)) {
             return { decision: "ask", reason: "⚠ Accessing outside allowed directories." };
         }
 
@@ -417,7 +431,7 @@ async function checkBashPermission(
 
         // 4a. `cd` auto-allow, and update the effective cwd for later commands.
         if (effectiveCwd) {
-            const cdTarget = getCdTarget(leafCmd.args, effectiveCwd, additionalDirs);
+            const cdTarget = getCdTarget(leafCmd.args, effectiveCwd, cwd, additionalDirs);
             if (cdTarget) {
                 effectiveCwd = cdTarget;
                 continue;
@@ -475,7 +489,7 @@ async function checkBashPermission(
  * Extract and validate the target directory of a `cd <path>` command.
  * Returns the resolved path if the cd is in-bounds, otherwise null.
  */
-function getCdTarget(args: string[], cwd: string, additionalDirs: string[]): string | null {
+function getCdTarget(args: string[], resolveCwd: string, boundaryCwd: string, additionalDirs: string[]): string | null {
     if (args.length < 1 || args[0] !== "cd") return null;
 
     let targetPath = "";
@@ -489,8 +503,8 @@ function getCdTarget(args: string[], cwd: string, additionalDirs: string[]): str
     }
     if (!targetPath) return null;
 
-    if (isOutOfBoundsPath(targetPath, cwd, additionalDirs)) return null;
-    return resolveArgPath(targetPath, cwd);
+    if (isOutOfBoundsPath(targetPath, resolveCwd, boundaryCwd, additionalDirs)) return null;
+    return resolveArgPath(targetPath, resolveCwd);
 }
 
 /**
@@ -500,14 +514,15 @@ function getCdTarget(args: string[], cwd: string, additionalDirs: string[]): str
 function isCommandOutOfBounds(
     args: string[],
     argString: string,
-    cwd: string,
+    resolveCwd: string,
+    boundaryCwd: string,
     additionalDirs: string[],
 ): boolean {
     for (const path of extractPathArgs(args)) {
-        if (isOutOfBoundsPath(path, cwd, additionalDirs)) return true;
+        if (isOutOfBoundsPath(path, resolveCwd, boundaryCwd, additionalDirs)) return true;
     }
     for (const path of extractRedirectionPaths(argString)) {
-        if (isOutOfBoundsPath(path, cwd, additionalDirs)) return true;
+        if (isOutOfBoundsPath(path, resolveCwd, boundaryCwd, additionalDirs)) return true;
     }
     return false;
 }
