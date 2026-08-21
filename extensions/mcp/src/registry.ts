@@ -65,6 +65,8 @@ interface McpToolSummary {
 export class Registry {
     private connections = new Map<string, ConnectedServer>();
     private registeredNames = new Set<string>();
+    /** Last-known status for servers we've attempted (or successfully connected to). */
+    private lastStatus = new Map<string, McpServerStatus>();
 
     async providerFor(config: McpServerConfig): Promise<OAuthClientProvider | undefined> {
         if (config.auth === "none") return undefined;
@@ -155,11 +157,15 @@ export class Registry {
             const conn = await this.attempt(config, provider, true);
             this.connections.set(config.key, conn);
             this.registerTools(pi, conn);
-            return statusOf(config, conn);
+            const status = statusOf(config, conn);
+            this.lastStatus.set(config.key, status);
+            return status;
         }
         catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            return statusOf(config, undefined, message);
+            const status = statusOf(config, undefined, message);
+            this.lastStatus.set(config.key, status);
+            return status;
         }
     }
 
@@ -221,6 +227,7 @@ export class Registry {
     }
 
     async disconnect(serverKey: string): Promise<void> {
+        this.lastStatus.delete(serverKey);
         const conn = this.connections.get(serverKey);
         if (!conn) return;
         this.connections.delete(serverKey);
@@ -238,8 +245,25 @@ export class Registry {
         loopback.stop();
     }
 
-    statuses(): McpServerStatus[] {
-        return [...this.connections.values()].map(conn => statusOf(conn.config, conn));
+    /**
+     * Snapshot of every server we know about: connected, failed-to-connect, or
+     * configured-but-never-attempted (using its raw config as an "unattempted" status).
+     * `configured` lets `/mcp status` reflect servers even if this process never
+     * called `connectAll`/`connectOne` for them yet (e.g. added to the config file
+     * after the last connect attempt).
+     */
+    statuses(configured: McpServerConfig[] = []): McpServerStatus[] {
+        const byKey = new Map<string, McpServerStatus>();
+        for (const config of configured) {
+            byKey.set(config.key, statusOf(config, undefined, "not connected"));
+        }
+        for (const [key, status] of this.lastStatus) {
+            byKey.set(key, status);
+        }
+        for (const [key, conn] of this.connections) {
+            byKey.set(key, statusOf(conn.config, conn));
+        }
+        return [...byKey.values()];
     }
 
     private require(serverKey: string): ConnectedServer {
@@ -258,18 +282,13 @@ function unwrapUnauthorized(err: unknown): UnauthorizedError | undefined {
 /** Build a pi tool definition that forwards to an MCP tool. */
 function defineTool(registry: Registry, conn: ConnectedServer, tool: McpToolSummary, name: string, description: string): ToolDefinition {
     const serverKey = conn.config.key;
-    const serverName = conn.config.key;
     const mcpToolName = tool.name;
     const parameters: TSchema = schemaFromParameters(tool.inputSchema);
+
     return {
         name,
         label: name,
         description,
-        promptSnippet: description.split("\n")[0] ?? `Call the MCP tool ${mcpToolName}`,
-        promptGuidelines: [
-            `Use ${name} when the task requires the MCP server "${serverName}".`,
-            `${name} is backed by the remote MCP tool "${mcpToolName}".`,
-        ],
         parameters,
         async execute(_toolCallId, params) {
             const result = await registry.call(serverKey, mcpToolName, (params ?? {}) as Record<string, unknown>);

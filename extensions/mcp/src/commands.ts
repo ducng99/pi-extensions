@@ -11,11 +11,12 @@ import type { McpServerStatus } from "./types";
 
 function formatStatus(status: McpServerStatus): string {
     if (status.connected) return `● ${status.server.key} (${status.server.type}) — connected · ${status.tools} tool(s)`;
+    if (status.error === "not connected") return `○ ${status.server.key} (${status.server.type}) — not connected`;
     return `○ ${status.server.key} (${status.server.type}) — failed: ${status.error ?? "unknown error"}`;
 }
 
-function statusTable(registry: Registry): string {
-    const statuses = registry.statuses();
+function statusTable(registry: Registry, cwd: string): string {
+    const statuses = registry.statuses(loadServers(cwd));
     if (statuses.length === 0) return "No MCP servers configured or connected.";
     return statuses.map(formatStatus).join("\n");
 }
@@ -56,7 +57,7 @@ export function registerCommands(pi: ExtensionAPI, registry: Registry): void {
                     else {
                         await registry.connectAll(pi, ctx.cwd);
                     }
-                    ctx.ui.notify(statusTable(registry), "info");
+                    ctx.ui.notify(statusTable(registry, ctx.cwd), "info");
                     break;
                 }
 
@@ -101,7 +102,7 @@ export function registerCommands(pi: ExtensionAPI, registry: Registry): void {
                 case "status":
                 default: {
                     const note = missingEnvNote(ctx.cwd);
-                    ctx.ui.notify(statusTable(registry) + (note ? `\n\n${note}` : ""), "info");
+                    ctx.ui.notify(statusTable(registry, ctx.cwd) + (note ? `\n\n${note}` : ""), "info");
                     break;
                 }
             }

@@ -113,4 +113,40 @@ describe("MCP client registry", () => {
         const registry = new Registry();
         await expect(registry.call("missing", "add", {})).rejects.toThrow(/not connected/);
     });
+
+    test("statuses() surfaces failed connection attempts instead of hiding them", async () => {
+        const registry = new Registry();
+        const badConfig = {
+            key: "broken",
+            label: "broken",
+            type: "stdio" as const,
+            command: join(dir, "does-not-exist-binary"),
+        };
+
+        const status = await registry.connectOne(fakePi as never, badConfig);
+        expect(status.connected).toBe(false);
+
+        // Regression: statuses() used to only reflect `this.connections`, so a
+        // failed attempt vanished entirely and `/mcp status` looked like nothing
+        // was configured at all.
+        const statuses = registry.statuses();
+        expect(statuses).toHaveLength(1);
+        expect(statuses[0]?.server.key).toBe("broken");
+        expect(statuses[0]?.connected).toBe(false);
+    });
+
+    test("statuses() lists configured servers that have never been attempted", async () => {
+        const registry = new Registry();
+        const configured = [{
+            key: "never-attempted",
+            label: "never-attempted",
+            type: "stdio" as const,
+            command: "whatever",
+        }];
+
+        const statuses = registry.statuses(configured);
+        expect(statuses).toHaveLength(1);
+        expect(statuses[0]?.connected).toBe(false);
+        expect(statuses[0]?.error).toBe("not connected");
+    });
 });
