@@ -92,11 +92,6 @@ export function createPlanPrompt(
     content: string,
     { tui, theme, isError, done }: PlanPromptCallbacks,
 ) {
-    const rows = tui.terminal?.rows ?? 24;
-    // Viewport for the plan preview: the overlay covers the whole terminal, so
-    // chrome + viewport = rows, filling the screen exactly.
-    const planViewport = Math.max(4, rows - CHROME_LINES);
-
     const selectList = new SelectList(PLAN_OPTIONS, PLAN_OPTIONS.length, {
         selectedPrefix: text => theme.fg("accent", text),
         selectedText: text => theme.fg("accent", text),
@@ -148,7 +143,7 @@ export function createPlanPrompt(
     }
 
     /** Exactly planViewport lines — the scrollable plan region. */
-    function renderPlanRegion(width: number): string[] {
+    function renderPlanRegion(width: number, planViewport: number): string[] {
         const w = Math.max(1, Math.floor(width));
         if (w !== currentWidth) {
             currentWidth = w;
@@ -189,8 +184,11 @@ export function createPlanPrompt(
 
     return {
         render: (width: number) => {
+            // Re-read terminal dimensions on each render so resizes are handled.
+            const rows = tui.terminal?.rows ?? 24;
+            const planViewport = Math.max(4, rows - CHROME_LINES);
             const fixed = container.render(width);
-            const region = renderPlanRegion(width);
+            const region = renderPlanRegion(width, planViewport);
             // pi's border style around the options: a full-width line above and
             // below the select list (like the DynamicBorder in pi's own
             // selectors).
@@ -218,6 +216,8 @@ export function createPlanPrompt(
                 return;
             }
 
+            const rows = tui.terminal?.rows ?? 24;
+            const planViewport = Math.max(4, rows - CHROME_LINES);
             const step = Math.max(3, Math.floor(planViewport / 2));
             // PgUp/PgDn only reach us in non-fullscreen mode — in fullscreen
             // pi's TuiAltScreen viewport consumes them to scroll the chat
