@@ -40,7 +40,7 @@ const TIMEOUT_MS = 10_000;
 // one-time lazy load (llama.cpp can take minutes for large models), which
 // would otherwise blow the 10s probe timeout on the first real classification.
 const WARMUP_TIMEOUT_MS = 60_000;
-const THRESHOLD = 0.8;
+const THRESHOLD = 0.5;
 
 let config: ResolvedClassifierConfig | null = null;
 

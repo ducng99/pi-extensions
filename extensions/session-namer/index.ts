@@ -34,7 +34,7 @@ Follow all rules in <rules>
 Use the <examples> so you know what a good title looks like.
 Your output must be:
 - A single line
-- <=50 characters
+- <=100 characters
 - No explanations
 - No markdown, plain text only
 </task>
@@ -87,7 +87,7 @@ Your output must be:
         }, "");
 
         const name = result.trim().replace(/^["']|["']$/g, "");
-        return { name: name.length > 50 ? `${name.slice(0, 49)}…` : name };
+        return { name: name.length > 100 ? `${name.slice(0, 99)}…` : name };
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);

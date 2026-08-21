@@ -116,6 +116,32 @@ export function createPlanPrompt(
     let maxScrollTop = 0;
     let scrollTop = 0;
 
+    /** SGR mouse wheel sequence, e.g. `\x1b[<64;12;5M` (64 = wheel up, 65 = wheel down). */
+    const ESC = String.fromCharCode(27);
+    const SGR_WHEEL = new RegExp(`^${ESC}\\[<(\\d+);(\\d+);(\\d+)([Mm])$`);
+
+    /** Parse an SGR mouse-wheel sequence; returns the scroll direction or null. */
+    function parseWheel(data: string): number | null {
+        const match = SGR_WHEEL.exec(data);
+        if (match) {
+            const button = Number.parseInt(match[1]!, 10);
+            if ((button & 64) === 0) return null;
+            const direction = button & 3;
+            if (direction === 0) return -1;
+            if (direction === 1) return 1;
+            return null;
+        }
+        // Legacy X10 wheel sequences: `\x1b[M` + button (64 = up, 65 = down).
+        if (data.length === 6 && data.startsWith("\x1b[M")) {
+            const button = data.charCodeAt(3) - 32;
+            if ((button & 64) === 0) return null;
+            const direction = button & 3;
+            if (direction === 0) return -1;
+            if (direction === 1) return 1;
+        }
+        return null;
+    }
+
     function scrollIndicator(direction: "up" | "down", hidden: number): string {
         const body = `... ${direction === "up" ? "↑" : "↓"} ${hidden} more `;
         return " " + theme.fg("dim", body);
@@ -184,6 +210,14 @@ export function createPlanPrompt(
             container.invalidate();
         },
         handleInput: (data: string) => {
+            // Wheel scrolling (only delivered while shown as a focused overlay).
+            const wheelDelta = parseWheel(data);
+            if (wheelDelta !== null) {
+                scrollTop = Math.max(0, Math.min(maxScrollTop, scrollTop + wheelDelta * 3));
+                tui.requestRender();
+                return;
+            }
+
             const step = Math.max(3, Math.floor(planViewport / 2));
             // PgUp/PgDn only reach us in non-fullscreen mode — in fullscreen
             // pi's TuiAltScreen viewport consumes them to scroll the chat
