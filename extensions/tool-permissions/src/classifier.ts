@@ -7,31 +7,9 @@ import type { ClassifierSessionContext } from "./session-context";
  * Classifies a bash command as allow / ask by querying an OpenAI-compatible
  * chat completions endpoint through pi's model manager.
  *
- * The endpoint (base URL + API key) is resolved from a registered provider
- * via `ModelRegistry.getProviderAuth()` — no URL/key is hard-coded here. The
- * default provider is `llama.cpp` and the default model is `cmd-classifier`.
- *
- * `loadClassifier()` also fires a fire-and-forget warmup probe so the model
- * server loads the model into memory up front — llama.cpp loads models lazily
- * on first request, which can take far longer than the probe timeout and
- * would otherwise make the first real classification fail.
- *
- * A single probe is sent: one `<Instruct>` (the moderation policy), one
- * `<Query>` (the yes/no question), an optional compact `<SessionContext>`
- * block (cwd, git remote/status, recent tool activity, agent-touched paths,
- * last user prompt) appended when the caller supplies one, and the command
- * in `<Document>`. The model is expected to emit a single `yes` / `no` token;
- * mirroring the reference judge-model evaluation pattern, we request
- * `max_tokens=1` with token logprobs (`logprobs=true, top_logprobs=20`) and
- * renormalise the `yes` and `no` probabilities into a continuous score in
- * [0, 1].
- *
  * The score maps to a binary decision:
  *   - score >= threshold → allow
  *   - otherwise          → ask
- *
- * `confidence` is how decisive the score is: `score` for an ask, `1 - score`
- * for an allow.
  */
 
 // ============================================================================
@@ -276,7 +254,6 @@ async function requestScore(messages: ChatMessage[], options: RequestOptions = {
         model: MODEL,
         messages,
         max_tokens: 1,
-        temperature: 0.0,
         logprobs: true,
         top_logprobs: 20,
     };
