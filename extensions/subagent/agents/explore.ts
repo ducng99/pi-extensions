@@ -1,12 +1,5 @@
 import type { DefaultAgentDefinition } from "../types";
 
-/**
- * Built-in Explore agent.
- *
- * Loaded as a default agent and overridable by placing a Markdown file with the
- * same name in one of the standard agent directories.
- */
-
 export default {
     name: "Explore",
     description: "Fast read-only codebase exploration agent.",

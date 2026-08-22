@@ -11,7 +11,8 @@ import * as fs from "fs";
 import { homedir } from "os";
 import * as path from "path";
 
-import exploreAgent from "./defaultAgents/explore";
+import exploreAgent from "./agents/explore";
+import generalAgent from "./agents/general";
 import type { AgentConfig, AgentDiscoveryResult, DefaultAgentDefinition } from "./types";
 
 // ============================================================================
@@ -98,9 +99,10 @@ function loadDefaultAgent(definition: DefaultAgentDefinition, filePath: string):
     };
 }
 
-function loadDefaultAgents(): AgentConfig[] {
+export function loadDefaultAgents(): AgentConfig[] {
     return [
         loadDefaultAgent(exploreAgent, "default:Explore"),
+        loadDefaultAgent(generalAgent, "default:General"),
     ];
 }
 

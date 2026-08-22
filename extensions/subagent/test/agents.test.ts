@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
-import { discoverAgents } from "../agents";
+import { discoverAgents, loadDefaultAgents } from "../agents";
 import type { AgentConfig } from "../types";
 
 function writeAgent(dir: string, name: string, content: string) {
@@ -13,6 +13,14 @@ function writeAgent(dir: string, name: string, content: string) {
 
 function names(agents: AgentConfig[]): string[] {
     return agents.map(a => a.name).sort();
+}
+
+function defaultAgentNames(): string[] {
+    return names(loadDefaultAgents());
+}
+
+function expectedNames(...extra: string[]): string[] {
+    return [...defaultAgentNames(), ...extra].sort();
 }
 
 function findAgent(agents: AgentConfig[], name: string): AgentConfig | undefined {
@@ -44,7 +52,7 @@ describe("discoverAgents", () => {
         const projectDir = path.join(tmpDir, "project");
         fs.mkdirSync(projectDir, { recursive: true });
         const result = discoverAgents(projectDir);
-        expect(names(result.agents)).toEqual(["Explore", "reviewer"]);
+        expect(names(result.agents)).toEqual(expectedNames("reviewer"));
         expect(findAgent(result.agents, "reviewer")?.source).toBe("user");
     });
 
@@ -53,7 +61,7 @@ describe("discoverAgents", () => {
         writeAgent(projectClaudeDir, "reviewer.md", "---\ndescription: Project reviewer\n---\nProject review.");
 
         const result = discoverAgents(path.join(tmpDir, "project"));
-        expect(names(result.agents)).toEqual(["Explore", "reviewer"]);
+        expect(names(result.agents)).toEqual(expectedNames("reviewer"));
         const reviewer = findAgent(result.agents, "reviewer")!;
         expect(reviewer.source).toBe("project");
         expect(reviewer.systemPrompt).toContain("Project review.");
@@ -66,7 +74,7 @@ describe("discoverAgents", () => {
         const deepDir = path.join(tmpDir, "project", "src", "deep");
         fs.mkdirSync(deepDir, { recursive: true });
         const result = discoverAgents(deepDir);
-        expect(names(result.agents)).toEqual(["Explore", "reviewer"]);
+        expect(names(result.agents)).toEqual(expectedNames("reviewer"));
     });
 
     test("project-local agents override user agents with same name", () => {
@@ -109,7 +117,7 @@ describe("discoverAgents", () => {
         const projectDir = path.join(tmpDir, "project");
         fs.mkdirSync(projectDir, { recursive: true });
         const result = discoverAgents(projectDir);
-        expect(names(result.agents)).toEqual(["Explore", "fallback"]);
+        expect(names(result.agents)).toEqual(expectedNames("fallback"));
     });
 
     test("ignores agent files without description or role", () => {
@@ -121,7 +129,7 @@ describe("discoverAgents", () => {
         const projectDir = path.join(tmpDir, "project");
         fs.mkdirSync(projectDir, { recursive: true });
         const result = discoverAgents(projectDir);
-        expect(names(result.agents)).toEqual(["Explore", "valid"]);
+        expect(names(result.agents)).toEqual(expectedNames("valid"));
     });
 
     test("ignores non-md files and directories", () => {
@@ -135,7 +143,7 @@ describe("discoverAgents", () => {
         const projectDir = path.join(tmpDir, "project");
         fs.mkdirSync(projectDir, { recursive: true });
         const result = discoverAgents(projectDir);
-        expect(names(result.agents)).toEqual(["Explore", "valid"]);
+        expect(names(result.agents)).toEqual(expectedNames("valid"));
     });
 
     test("returns built-in agents when no user agents exist", () => {
@@ -143,7 +151,7 @@ describe("discoverAgents", () => {
         const projectDir = path.join(tmpDir, "project");
         fs.mkdirSync(projectDir, { recursive: true });
         const result = discoverAgents(projectDir);
-        expect(names(result.agents)).toEqual(["Explore"]);
+        expect(names(result.agents)).toEqual(expectedNames());
         expect(result.projectClaudeAgentsDir).toBeNull();
     });
 
