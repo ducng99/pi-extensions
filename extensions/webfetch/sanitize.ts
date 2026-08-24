@@ -33,8 +33,7 @@ export async function sanitizeWithPiSession(content: string, prompt?: string, op
         const modelRuntime = await ModelRuntime.create();
 
         const models = [
-            ["opencode", "deepseek-v4-flash-free"],
-            ["opencode", "mimo-v2.5-free"],
+            ["aimachine", "fast"],
             ["opencode-go", "deepseek-v4-flash"],
         ] as const;
 

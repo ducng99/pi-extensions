@@ -3,7 +3,7 @@ import type { DefaultAgentDefinition } from "../types";
 export default {
     name: "Explore",
     description: "Fast read-only codebase exploration agent.",
-    model: "opencode-go/deepseek-v4-flash",
+    model: "aimachine/fast",
     tools: ["Read", "Grep", "Glob", "Bash(ls *)", "Bash(find *)", "Bash(grep *)", "Bash(rg *)"],
     disallowedTools: ["Edit", "Write", "Agent"],
     systemPrompt: `You are a file search specialist. You excel at thoroughly navigating and exploring codebases.
