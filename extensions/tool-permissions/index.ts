@@ -96,7 +96,11 @@ export default function (pi: ExtensionAPI) {
         }
 
         if (decision.decision === "ask") {
-            const result = await ctx.ui.custom<PermissionResult>((tui, theme, _keybindings, done) => {
+            // Try the rich TUI custom component first. If custom() is not
+            // supported (e.g. RPC mode used by subagents), fall back to the
+            // simpler confirm() dialog which is forwarded to the parent session
+            // via the extension_ui_request/extension_ui_response protocol.
+            const customResult = await ctx.ui.custom<PermissionResult>((tui, theme, _keybindings, done) => {
                 const contextMsg = formatConfirmMessage(theme, toolName, event.input as Record<string, unknown>, ctx.cwd, decision.reason);
                 const question = `Allow ${toolName}?`;
                 const rows = tui.terminal.rows;
@@ -114,15 +118,34 @@ export default function (pi: ExtensionAPI) {
                 },
             });
 
-            if (result?.allow) {
-                return undefined;
-            }
-
-            if (result?.message) {
+            if (customResult !== undefined) {
+                if (customResult.allow) {
+                    return undefined;
+                }
+                if (customResult.message) {
+                    return {
+                        block: true,
+                        reason: `User denied ${toolName}: ${customResult.message}`,
+                    };
+                }
                 return {
                     block: true,
-                    reason: `User denied ${toolName}: ${result.message}`,
+                    reason: `${toolName} was denied by user.`,
+                    terminate: true,
                 };
+            }
+
+            // Fallback: confirm() works in both TUI and RPC modes. In RPC
+            // mode it emits extension_ui_request → parent forwards to main
+            // session UI → extension_ui_response resolves the promise.
+            const reason = decision.reason ? ` (${decision.reason})` : "";
+            const allowed = await ctx.ui.confirm(
+                `Allow ${toolName}?`,
+                `Allow ${toolName} to run?${reason}`,
+            );
+
+            if (allowed) {
+                return undefined;
             }
 
             return {

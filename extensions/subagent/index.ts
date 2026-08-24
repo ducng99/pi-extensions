@@ -10,7 +10,7 @@ import fs from "fs";
 
 import { discoverAgents } from "./agents";
 import { renderCall, renderResult } from "./renderer";
-import { runAgent, runAgentInBackground } from "./run";
+import { type ExtensionUIRequestHandler, runAgent, runAgentInBackground } from "./run";
 import { SubagentParams } from "./schema";
 import type { BackgroundTaskInfo, SingleResult, SubagentDetails } from "./types";
 import { getFinalOutput, getResultOutput, isFailedResult } from "./utils";
@@ -21,6 +21,68 @@ function truncateTaskForStatus(task: string, maxLength: number): string {
     task = task.replace(/\r\n|\n/g, " ");
     if (task.length <= maxLength) return task;
     return task.slice(0, maxLength - 3) + "...";
+}
+
+/**
+ * Create a handler that forwards extension UI requests from a child process
+ * to the main session's UI. This enables permission prompts (and other UI
+ * interactions) from subagent processes to be displayed to the user.
+ */
+function createExtensionUIHandler(ui: ExtensionUIContext): ExtensionUIRequestHandler {
+    return async (request: Record<string, unknown>): Promise<Record<string, unknown>> => {
+        const method = request["method"];
+
+        switch (method) {
+            case "confirm": {
+                const title = String(request["title"] ?? "Confirm");
+                const message = String(request["message"] ?? "");
+                const confirmed = await ui.confirm(title, message);
+                return { confirmed };
+            }
+            case "select": {
+                const title = String(request["title"] ?? "Select");
+                // Options from the child may be strings or objects with { label, value }
+                const rawOptions = Array.isArray(request["options"]) ? request["options"] : [];
+                const options: string[] = rawOptions.map(opt =>
+                    typeof opt === "string" ? opt : String((opt as Record<string, unknown>)?.["label"] ?? (opt as Record<string, unknown>)?.["value"] ?? ""),
+                );
+                const value = await ui.select(title, options);
+                if (value === undefined) {
+                    return { cancelled: true };
+                }
+                return { value };
+            }
+            case "input": {
+                const title = String(request["title"] ?? "Input");
+                const placeholder = String(request["placeholder"] ?? "");
+                const value = await ui.input(title, placeholder);
+                if (value === undefined) {
+                    return { cancelled: true };
+                }
+                return { value };
+            }
+            case "notify": {
+                const message = String(request["message"] ?? "");
+                const rawType = String(request["notifyType"] ?? "info");
+                const notifyType = rawType === "success" ? "info" : rawType as "info" | "warning" | "error";
+                ui.notify(message, notifyType);
+                return {};
+            }
+            case "editor": {
+                const title = String(request["title"] ?? "Editor");
+                const prefill = String(request["prefill"] ?? "");
+                const value = await ui.editor(title, prefill);
+                if (value === undefined) {
+                    return { cancelled: true };
+                }
+                return { value };
+            }
+            default: {
+                // Unsupported UI method — treat as cancelled
+                return { cancelled: true };
+            }
+        }
+    };
 }
 
 export default function subagentExtension(pi: ExtensionAPI) {
@@ -253,6 +315,7 @@ paths, line numbers, what specifically to change.
                 signal,
                 onUpdate,
                 makeDetails("single"),
+                createExtensionUIHandler(ctx.ui),
             );
             if (isFailedResult(result)) {
                 const errorMsg = getResultOutput(result);

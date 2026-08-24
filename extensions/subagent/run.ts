@@ -90,6 +90,14 @@ export type OnUpdateCallback = (partial: {
     details: { results: SingleResult[] };
 }) => void;
 
+/**
+ * Handler for extension UI requests from the child process. The parent
+ * forwards these to the main session's UI and returns the user's response.
+ */
+export type ExtensionUIRequestHandler = (
+    request: Record<string, unknown>,
+) => Promise<Record<string, unknown>>;
+
 export async function runAgent(
     defaultCwd: string,
     agents: AgentConfig[],
@@ -101,6 +109,7 @@ export async function runAgent(
     signal: AbortSignal | undefined,
     onUpdate: OnUpdateCallback | undefined,
     makeDetails: (results: SingleResult[]) => { results: SingleResult[] },
+    handleExtensionUIRequest?: ExtensionUIRequestHandler,
 ): Promise<SingleResult> {
     const agent = agents.find(a => a.name === agentName);
 
@@ -118,7 +127,7 @@ export async function runAgent(
         };
     }
 
-    const args: string[] = ["--mode", "json", "-p", "--no-session"];
+    const args: string[] = ["--mode", "rpc", "--no-session"];
     const effectiveModel = modelOverride || agent.model;
     if (effectiveModel && effectiveModel !== "inherit") args.push("--model", effectiveModel);
 
@@ -199,7 +208,7 @@ export async function runAgent(
             const proc = doSpawn(invocation.command, invocation.args, {
                 cwd: cwd ?? defaultCwd,
                 shell: false,
-                stdio: ["ignore", "pipe", "pipe"],
+                stdio: ["pipe", "pipe", "pipe"],
                 env,
             });
             let buffer = "";
@@ -211,6 +220,36 @@ export async function runAgent(
                     event = JSON.parse(line) as Record<string, unknown>;
                 }
                 catch {
+                    return;
+                }
+
+                // Handle extension UI requests from the child process.
+                // In RPC mode, ctx.ui.confirm()/select() emit these events and
+                // wait for an extension_ui_response on stdin.
+                if (event.type === "extension_ui_request" && handleExtensionUIRequest) {
+                    const { id, ...request } = event;
+                    if (typeof id === "string") {
+                        handleExtensionUIRequest(request)
+                            .then((response) => {
+                                try {
+                                    const reply = JSON.stringify({ type: "extension_ui_response", id, ...response }) + "\n";
+                                    proc.stdin?.write(reply);
+                                }
+                                catch {
+                                    // stdin may be closed
+                                }
+                            })
+                            .catch(() => {
+                                // Forward error as cancellation
+                                try {
+                                    const reply = JSON.stringify({ type: "extension_ui_response", id, cancelled: true }) + "\n";
+                                    proc.stdin?.write(reply);
+                                }
+                                catch {
+                                    // stdin may be closed
+                                }
+                            });
+                    }
                     return;
                 }
 
