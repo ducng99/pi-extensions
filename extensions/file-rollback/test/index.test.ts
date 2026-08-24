@@ -192,13 +192,13 @@ describe("file-rollback index event wiring", () => {
         expect(readFile(tmpDir, "a.txt")).toBe("v2");
     });
 
-    test("shadow repo is created under the project-keyed dir in HOME", async () => {
+    test("shadow repo is created under the project+session-keyed dir in HOME", async () => {
         const { handlers } = makeHarness();
-        const { ctx } = makeCtx();
+        const { ctx, sessionId } = makeCtx();
         await handlers.get("session_start")!({ reason: "startup" }, ctx);
 
         const shadowRoot = path.join(os.homedir(), ".pi", "agent", "file-rollback");
-        const shadowDir = path.join(shadowRoot, hashCwd(tmpDir));
+        const shadowDir = path.join(shadowRoot, hashCwd(tmpDir), `ephemeral-${sessionId}`);
         expect(fs.existsSync(path.join(shadowDir, ".git"))).toBe(true);
     });
 });

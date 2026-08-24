@@ -4,6 +4,7 @@ import * as os from "os";
 import * as path from "path";
 
 import {
+    clearStaleIndexLock,
     deriveSessionHash,
     findSourceRepo,
     getShadowDir,
@@ -103,11 +104,11 @@ describe("deriveSessionHash", () => {
 // ============================================================================
 
 describe("getShadowDir", () => {
-    test("returns path under ~/.pi/agent/file-rollback/", () => {
-        const dir = getShadowDir("test-session");
+    test("returns path under ~/.pi/agent/file-rollback/<cwdHash>/<sessionKey>", () => {
+        const dir = getShadowDir("proj-hash", "test-session");
         expect(dir).toContain(".pi");
         expect(dir).toContain("file-rollback");
-        expect(dir).toContain("test-session");
+        expect(dir).toContain(path.join("proj-hash", "test-session"));
     });
 });
 
@@ -165,6 +166,37 @@ describe("initShadowRepo", () => {
         await initShadowRepo(config.shadowDir, config.cwd, mockCtx());
         await initShadowRepo(config.shadowDir, config.cwd, mockCtx());
         expect(fs.existsSync(path.join(config.shadowDir, ".git"))).toBe(true);
+    });
+
+    test("clears a stale index.lock on re-init", async () => {
+        const config = makeConfig(tmpDir);
+        await initShadowRepo(config.shadowDir, config.cwd, mockCtx());
+
+        const lockPath = path.join(config.shadowDir, ".git", "index.lock");
+        fs.writeFileSync(lockPath, "", "utf8");
+        const old = new Date(Date.now() - 10 * 60 * 1000);
+        fs.utimesSync(lockPath, old, old);
+
+        await initShadowRepo(config.shadowDir, config.cwd, mockCtx());
+        expect(fs.existsSync(lockPath)).toBe(false);
+    });
+
+    test("clearStaleIndexLock keeps a fresh lock (another git may be running)", async () => {
+        const config = makeConfig(tmpDir);
+        await initShadowRepo(config.shadowDir, config.cwd, mockCtx());
+
+        const lockPath = path.join(config.shadowDir, ".git", "index.lock");
+        fs.writeFileSync(lockPath, "", "utf8");
+
+        // Fresh lock: must be preserved.
+        clearStaleIndexLock(config.shadowDir);
+        expect(fs.existsSync(lockPath)).toBe(true);
+
+        // Backdated lock: stale, must be removed.
+        const old = new Date(Date.now() - 10 * 60 * 1000);
+        fs.utimesSync(lockPath, old, old);
+        clearStaleIndexLock(config.shadowDir);
+        expect(fs.existsSync(lockPath)).toBe(false);
     });
 
     test("tunes config and has no HEAD commit", async () => {

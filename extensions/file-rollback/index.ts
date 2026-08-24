@@ -4,8 +4,9 @@
  * Snapshots the working directory state after each mutating tool result (keyed
  * by issuing assistant entry + tool call id) and restores those snapshots when
  * the user rolls back to a specific conversation point via /tree. Uses a
- * shadow git repository stored in ~/.pi/agent/file-rollback/<projectHash>/.git
- * to avoid polluting the project directory.
+ * per-session shadow git repository stored in
+ * ~/.pi/agent/file-rollback/<projectHash>/<sessionKey>/.git to avoid polluting
+ * the project directory and to keep concurrent sessions isolated.
  *
  * Snapshots are git tree hashes (never commits), the shadow repo is seeded
  * from the source repo, and the extension is silent when the project is not
@@ -146,7 +147,7 @@ export default function fileRollbackExtension(pi: ExtensionAPI) {
         const sessionFile = ctx.sessionManager.getSessionFile();
         const sessionHash = deriveSessionHash(sessionFile, sessionId);
         const cwdHash = hashCwd(ctx.cwd);
-        const shadowDir = getShadowDir(cwdHash);
+        const shadowDir = getShadowDir(cwdHash, sessionHash);
 
         const config: ShadowGitConfig = {
             shadowDir,

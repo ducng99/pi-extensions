@@ -3,7 +3,8 @@
  *
  * Git primitives and repo management for the file-rollback extension.
  * A shadow repo with a tree-hash-based snapshot store, no commits,
- * project-keyed storage, and source-repo object alternates for large repos.
+ * per-project/per-session keyed storage, and source-repo object
+ * alternates for large repos.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -64,10 +65,30 @@ export function deriveSessionHash(sessionFile: string | undefined, sessionId: st
 }
 
 /**
- * Get the shadow repo directory for a project cwd hash.
+ * Get the shadow repo directory for a project cwd hash + session key.
+ * Each session gets its own shadow repo so concurrent sessions never
+ * contend on the same git index lock.
  */
-export function getShadowDir(cwdHash: string): string {
-    return path.join(os.homedir(), ".pi", "agent", "file-rollback", cwdHash);
+export function getShadowDir(cwdHash: string, sessionKey: string): string {
+    return path.join(os.homedir(), ".pi", "agent", "file-rollback", cwdHash, sessionKey);
+}
+
+/**
+ * Remove a stale .git/index.lock left behind by a killed/crashed process.
+ * Only removes locks older than maxAgeMs so a concurrently running git
+ * process is never disturbed.
+ */
+export function clearStaleIndexLock(shadowDir: string, maxAgeMs = 60_000): void {
+    const lockPath = path.join(shadowDir, ".git", "index.lock");
+    try {
+        const stat = fs.statSync(lockPath);
+        if (Date.now() - stat.mtimeMs > maxAgeMs) {
+            fs.rmSync(lockPath, { force: true });
+        }
+    }
+    catch {
+        // No lock file or unreadable — nothing to do.
+    }
 }
 
 /**
@@ -184,7 +205,12 @@ export async function initShadowRepo(
     ctx?: ExtensionContext,
 ): Promise<void> {
     const gitDir = path.join(shadowDir, ".git");
-    if (fs.existsSync(gitDir)) return;
+    if (fs.existsSync(gitDir)) {
+        // Repo already initialized; recover from any stale lock left by a
+        // previous crashed/killed process before running new git commands.
+        clearStaleIndexLock(shadowDir);
+        return;
+    }
 
     fs.mkdirSync(shadowDir, { recursive: true });
 
