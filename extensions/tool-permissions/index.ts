@@ -47,7 +47,7 @@ async function ensureParserInitialized(): Promise<void> {
 // ============================================================================
 
 export default function (pi: ExtensionAPI) {
-    let automodeEnabled = false;
+    let automodeEnabled = true;
 
     // Forward plan-mode toggling from the plan extension (over the shared event
     // bus) into the settings loader, which merges them like the subagent file.
@@ -61,6 +61,14 @@ export default function (pi: ExtensionAPI) {
     // Initialize parser eagerly at startup
     ensureParserInitialized().catch((err) => {
         console.error("Failed to initialize tree-sitter parser:", err);
+    });
+
+    // Show auto mode status indicator on session start
+    pi.on("session_start", (_, ctx) => {
+        if (automodeEnabled) {
+            loadClassifier(ctx.modelRegistry).catch(() => {});
+        }
+        ctx.ui.setStatus("STATUS_AUTOMODE_ENABLED", automodeEnabled ? ctx.ui.theme.fg("warning", "⏵⏵ auto mode on") : undefined);
     });
 
     pi.on("tool_call", async (event: ToolCallEvent, ctx): Promise<ToolCallEventResult | void> => {

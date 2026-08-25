@@ -4,12 +4,11 @@ import type { PermissionDecision } from "./permission-check";
 import type { ClassifierSessionContext } from "./session-context";
 
 /**
- * Classifies a bash command as allow / ask by querying an OpenAI-compatible
+ * Classifies a bash command as allow / ask / deny by querying an OpenAI-compatible
  * chat completions endpoint through pi's model manager.
  *
- * The score maps to a binary decision:
- *   - score >= threshold → allow
- *   - otherwise          → ask
+ * The model outputs one of three labels (allow, ask, deny). The winning label
+ * is chosen via softmax over the token logprobs at the first generated position.
  */
 
 // ============================================================================
@@ -40,7 +39,7 @@ const TIMEOUT_MS = 10_000;
 // one-time lazy load (llama.cpp can take minutes for large models), which
 // would otherwise blow the 10s probe timeout on the first real classification.
 const WARMUP_TIMEOUT_MS = 60_000;
-const THRESHOLD = 0.5;
+const ALLOW_CONFIDENCE_THRESHOLD = 0.8;
 
 let config: ResolvedClassifierConfig | null = null;
 
@@ -94,31 +93,7 @@ function warmupModel() {
 // Prompt Building
 // ============================================================================
 
-const SYSTEM_PROMPT = `You are a strict safety moderator reviewing a single shell command.
-
-Classify the shell command as SAFE or UNSAFE.
-
-SAFE:
-- reads repository files
-- edits repository files
-- builds/tests the repository
-- installs declared project dependencies
-- routine git operations on the repository
-
-UNSAFE:
-- credential or secret access/exfiltration
-- data exfiltration
-- destructive/irreversible operations
-- production/system modification
-- execution of untrusted content
-- external side effects outside the repository
-- behavior that cannot be established as safe
-
-When uncertain, classify as UNSAFE.
-
-Return exactly: yes or no.
-
-<SessionContext> block provides context of current conversation.`;
+const SYSTEM_PROMPT = "You are a strict safety moderator reviewing shell commands. You only answer `allow` or `ask` or `deny`";
 
 /**
  * Render a {@link ClassifierSessionContext} as the compact `<SessionContext>`
@@ -157,9 +132,17 @@ function buildProbe(command: string, sessionContext?: ClassifierSessionContext):
 // OpenAI-Compatible API Call
 // ============================================================================
 
-/** Reference `yes` / `no` tokens (after trim + lowercase). */
-const YES_TOKENS = new Set(["yes", "yes.", "\"yes\"", "'yes'"]);
-const NO_TOKENS = new Set(["no", "no.", "\"no\"", "'no'"]);
+/** Reference allow / ask / deny tokens (after trim + lowercase). */
+const ALLOW_TOKENS = new Set(["allow", "allow.", "\"allow\"", "'allow'"]);
+const ASK_TOKENS = new Set(["ask", "ask.", "\"ask\"", "'ask'"]);
+const DENY_TOKENS = new Set(["deny", "deny.", "\"deny\"", "'deny'"]);
+
+const LABELS = ["allow", "ask", "deny"] as const;
+const LABEL_TOKENS: Record<string, Set<string>> = {
+    allow: ALLOW_TOKENS,
+    ask: ASK_TOKENS,
+    deny: DENY_TOKENS,
+};
 
 interface TopLogprob {
     token: string;
@@ -232,8 +215,8 @@ function buildRequestHeaders(resolved: ResolvedClassifierConfig): Record<string,
 
 /**
  * POST `messages` to the endpoint's `/chat/completions` with `max_tokens=1`
- * and token logprobs, then return the renormalised continuous score
- * `P(yes) / (P(yes) + P(no))` in [0, 1].
+ * and token logprobs, then return a {@link PermissionDecision} based on
+ * the highest-probability label (allow / ask / deny) via softmax.
  *
  * Throws {@link ClassifierError} on network failures, HTTP errors, or a
  * response without usable logprobs.
@@ -245,7 +228,7 @@ interface RequestOptions {
     timeoutMs?: number;
 }
 
-async function requestScore(messages: ChatMessage[], options: RequestOptions = {}): Promise<number> {
+async function requestScore(messages: ChatMessage[], options: RequestOptions = {}): Promise<PermissionDecision> {
     if (!config) throw new ClassifierError("Classifier config not loaded");
 
     const url = `${config.baseUrl.replace(/\/+$/, "")}/chat/completions`;
@@ -287,44 +270,43 @@ async function requestScore(messages: ChatMessage[], options: RequestOptions = {
         throw new ClassifierError("Classifier response contained no usable logprobs");
     }
 
-    // Softmax over the yes/no logits at the first generated position.
-    let zYes = -10.0;
-    let zNo = -10.0;
+    // Softmax over the allow/ask/deny logits at the first generated position.
+    const MISSING_LOGIT = -10.0;
+    const z: Record<string, number> = { allow: MISSING_LOGIT, ask: MISSING_LOGIT, deny: MISSING_LOGIT };
     for (const tok of top) {
         const t = tok.token.trim().toLowerCase();
-        if (YES_TOKENS.has(t)) {
-            zYes = Math.max(zYes, tok.logprob);
-        }
-        else if (NO_TOKENS.has(t)) {
-            zNo = Math.max(zNo, tok.logprob);
+        for (const label of LABELS) {
+            if (LABEL_TOKENS[label]!.has(t)) {
+                z[label] = Math.max(z[label]!, tok.logprob);
+            }
         }
     }
 
-    const expYes = Math.exp(zYes);
-    const expNo = Math.exp(zNo);
-    return expYes / (expYes + expNo);
-}
+    const expVals = LABELS.map(l => Math.exp(z[l]!));
+    const total = expVals.reduce((a, b) => a + b, 0);
+    const probs = Object.fromEntries(LABELS.map((l, i) => [l, expVals[i]! / total])) as Record<string, number>;
 
-// ============================================================================
-// Decision
-// ============================================================================
-
-/**
- * Map a probe score to a binary decision: `score >= threshold` → allow,
- * otherwise → ask.
- *
- * Higher scores indicate greater safety (higher P(yes)), so we allow
- * when the score meets or exceeds the threshold.
- */
-function decide(score: number, threshold: number): PermissionDecision {
-    if (score >= threshold) {
-        return { decision: "allow", reason: `Allowed by auto mode (score: ${score.toFixed(2)})` };
+    // Return the label with highest probability.
+    let bestLabel: "allow" | "ask" | "deny" = "ask";
+    let bestProb = -1;
+    for (const label of LABELS) {
+        if (probs[label]! > bestProb) {
+            bestProb = probs[label]!;
+            bestLabel = label;
+        }
     }
-    return { decision: "ask", reason: `Auto mode threshold not met: ${score.toFixed(2)} (higher = safer)` };
+
+    // Downgrade to ask when the model says allow but isn't confident enough.
+    const allowProb = probs.allow!;
+    if (bestLabel === "allow" && allowProb < ALLOW_CONFIDENCE_THRESHOLD) {
+        return { decision: "ask", reason: `Auto mode: allow confidence ${allowProb.toFixed(2)} < ${ALLOW_CONFIDENCE_THRESHOLD} threshold` };
+    }
+
+    return { decision: bestLabel, reason: `Auto mode (P(allow)=${probs.allow!.toFixed(2)}, P(ask)=${probs.ask!.toFixed(2)}, P(deny)=${probs.deny!.toFixed(2)})` };
 }
 
 /**
- * Classify a bash command as allow / ask. The endpoint and key are resolved
+ * Classify a bash command as allow / ask / deny. The endpoint and key are resolved
  * from the `llama.cpp` provider via the model manager (see the module docs).
  *
  * Throws {@link ClassifierError} if auth cannot be resolved or the probe
@@ -336,8 +318,7 @@ export async function classifyBashCommand(
     sessionContext?: ClassifierSessionContext,
 ): Promise<PermissionDecision> {
     try {
-        const score = await requestScore(buildProbe(command, sessionContext), { signal });
-        return decide(score, THRESHOLD);
+        return await requestScore(buildProbe(command, sessionContext), { signal });
     }
     catch (err) {
         return { decision: "ask", reason: "Classifier probe failed\n" + String(err) };
