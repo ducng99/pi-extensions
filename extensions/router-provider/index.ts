@@ -57,7 +57,7 @@ export default async function (pi: ExtensionAPI) {
                     input,
                     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
                     contextWindow: model.capabilities?.contextWindow ?? 1_001_000,
-                    maxTokens: model.max_completion_tokens ?? 32768,
+                    maxTokens: model.max_completion_tokens ?? 131072,
                 } satisfies Model<"openai-completions">;
             });
         },
