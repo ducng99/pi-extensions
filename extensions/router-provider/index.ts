@@ -50,7 +50,7 @@ export default async function (pi: ExtensionAPI) {
                     api: "openai-completions",
                     provider: PROVIDER_ID,
                     baseUrl: BASE_URL,
-                    reasoning: model.capabilities?.reasoning ?? false,
+                    reasoning: model.capabilities?.reasoning ?? true,
                     thinkingLevelMap: {
                         off: model.capabilities?.thinkingCanDisable ? "off" : null,
                     },
