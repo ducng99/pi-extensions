@@ -519,6 +519,9 @@ function isCommandOutOfBounds(
     additionalDirs: string[],
 ): boolean {
     for (const path of extractPathArgs(args)) {
+        // Skip /dev/null (POSIX) and NUL (Windows) null devices — they are
+        // not real filesystem paths and should never trigger out-of-bounds.
+        if (path === "/dev/null" || /^nul:?$/i.test(path)) continue;
         if (isOutOfBoundsPath(path, resolveCwd, boundaryCwd, additionalDirs)) return true;
     }
     for (const path of extractRedirectionPaths(argString)) {
