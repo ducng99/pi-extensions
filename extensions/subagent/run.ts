@@ -132,9 +132,7 @@ export async function runAgent(
     if (effectiveModel && effectiveModel !== "inherit") args.push("--model", effectiveModel);
 
     let tmpPromptDir: string | null = null;
-    let tmpPromptPath: string | null = null;
     let tmpPermissionsDir: string | null = null;
-    let tmpPermissionsPath: string | null = null;
 
     const usage: UsageStats = {
         input: 0,
@@ -172,27 +170,18 @@ export async function runAgent(
 
     try {
         if (agent.systemPrompt.trim()) {
-            const prompt = `## Subagent Role: ${agent.name}\n\n${agent.systemPrompt}`;
-            const tmp = await writePromptToTempFile(agent.name, prompt);
+            const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt.trim());
             tmpPromptDir = tmp.dir;
-            tmpPromptPath = tmp.filePath;
-            args.push("--append-system-prompt", tmpPromptPath);
+            args.push("--append-system-prompt", tmp.filePath);
         }
 
         const perms = await writeAgentPermissionsTempFile(agent);
         if (perms) {
             tmpPermissionsDir = perms.dir;
-            tmpPermissionsPath = perms.filePath;
-            env[SUBAGENT_PERMISSIONS_ENV_VAR] = tmpPermissionsPath;
+            env[SUBAGENT_PERMISSIONS_ENV_VAR] = perms.filePath;
             cleanupPermissions = () => {
                 try {
-                    if (tmpPermissionsPath) fs.unlinkSync(tmpPermissionsPath);
-                }
-                catch {
-                    /* ignore */
-                }
-                try {
-                    if (tmpPermissionsDir) fs.rmdirSync(tmpPermissionsDir);
+                    if (tmpPermissionsDir) fs.rmSync(tmpPermissionsDir, { recursive: true, force: true });
                 }
                 catch {
                     /* ignore */
@@ -212,6 +201,29 @@ export async function runAgent(
                 env,
             });
             let buffer = "";
+            let stdinClosed = false;
+
+            // In RPC mode, the child process ignores CLI text arguments and only
+            // starts working when it receives a `prompt` command on stdin. Send
+            // the task as a prompt immediately after the child starts.
+            try {
+                const promptCommand = JSON.stringify({ type: "prompt", message: `Task: ${task}` }) + "\n";
+                proc.stdin?.write(promptCommand);
+            }
+            catch {
+                // stdin may be closed; the error/close handlers below will resolve.
+            }
+
+            const closeStdin = () => {
+                if (stdinClosed) return;
+                stdinClosed = true;
+                try {
+                    proc.stdin?.end();
+                }
+                catch {
+                    /* ignore */
+                }
+            };
 
             const processLine = (line: string) => {
                 if (!line.trim()) return;
@@ -279,6 +291,14 @@ export async function runAgent(
                     currentResult.messages.push(event.message as Message);
                     emitUpdate();
                 }
+
+                // The child emits `agent_settled` when it has finished processing
+                // the prompt and is idle. Close stdin to let the child shut down
+                // gracefully and exit so the parent doesn't have to wait for the
+                // SIGTERM timeout.
+                if (event.type === "agent_settled") {
+                    closeStdin();
+                }
             };
 
             proc.stdout.on("data", (data) => {
@@ -294,16 +314,19 @@ export async function runAgent(
 
             proc.on("close", (code) => {
                 if (buffer.trim()) processLine(buffer);
+                closeStdin();
                 resolve(code ?? 0);
             });
 
             proc.on("error", () => {
+                closeStdin();
                 resolve(1);
             });
 
             if (signal) {
                 const killProc = () => {
                     wasAborted = true;
+                    closeStdin();
                     proc.kill("SIGTERM");
                     setTimeout(() => {
                         if (!proc.killed) proc.kill("SIGKILL");
@@ -319,17 +342,9 @@ export async function runAgent(
         return currentResult;
     }
     finally {
-        if (tmpPromptPath) {
-            try {
-                fs.unlinkSync(tmpPromptPath);
-            }
-            catch {
-                /* ignore */
-            }
-        }
         if (tmpPromptDir) {
             try {
-                fs.rmdirSync(tmpPromptDir);
+                fs.rmSync(tmpPromptDir, { recursive: true, force: true });
             }
             catch {
                 /* ignore */

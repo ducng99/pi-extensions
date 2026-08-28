@@ -4,11 +4,28 @@ import * as fs from "fs";
 
 import type { AgentConfig } from "../types";
 
+class MockWritable extends EventEmitter {
+    writable = true;
+    destroyed = false;
+    chunks: string[] = [];
+
+    write(data: string): boolean {
+        this.chunks.push(data);
+        return true;
+    }
+
+    end() {
+        this.destroyed = true;
+        this.writable = false;
+    }
+}
+
 class MockChildProcess extends EventEmitter {
     pid = 9999;
     killed = false;
     stdout = new EventEmitter();
     stderr = new EventEmitter();
+    stdin = new MockWritable();
     kill() {}
 }
 
@@ -23,6 +40,7 @@ const mockSpawn = mock((_command: string, _args: string[], _options: unknown) =>
             "data",
             '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"hello"}],"usage":{"input":10,"output":5}}}\n',
         );
+        proc.stdout.emit("data", '{"type":"agent_settled"}\n');
         proc.emit("close", 0);
     }, 0);
     return proc;
@@ -80,6 +98,73 @@ describe("runAgent", () => {
         const result = await runAgent("/tmp", agents, "Missing", "task", undefined, undefined, undefined, undefined, undefined, results => ({ results }));
         expect(result.exitCode).toBe(1);
         expect(result.stderr).toContain("Unknown agent");
+    });
+
+    test("sends a prompt command with the task on stdin in RPC mode", async () => {
+        let capturedStdin: MockWritable | null = null;
+        mockSpawn.mockImplementationOnce(() => {
+            const proc = new MockChildProcess();
+            capturedStdin = proc.stdin as MockWritable;
+            setTimeout(() => {
+                proc.stdout.emit(
+                    "data",
+                    '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"done"}],"usage":{"input":1,"output":1}}}\n',
+                );
+                proc.stdout.emit("data", '{"type":"agent_settled"}\n');
+                proc.emit("close", 0);
+            }, 0);
+            return proc;
+        });
+
+        await runAgent("/tmp", agents, "Test", "say hello", undefined, undefined, undefined, undefined, undefined, results => ({ results }));
+
+        expect(capturedStdin).not.toBeNull();
+        const lines = (capturedStdin as unknown as MockWritable).chunks.join("").split("\n").filter(l => l.trim());
+        const promptLine = lines.map((l) => {
+            try {
+                return JSON.parse(l) as { type?: string; message?: string };
+            }
+            catch {
+                return null;
+            }
+        }).find(p => p?.type === "prompt");
+        expect(promptLine).toBeDefined();
+        expect(promptLine?.message).toContain("say hello");
+    });
+
+    test("closes stdin after agent settles so the child process can exit", async () => {
+        let capturedStdin: MockWritable | null = null;
+        mockSpawn.mockImplementationOnce(() => {
+            const proc = new MockChildProcess();
+            capturedStdin = proc.stdin as MockWritable;
+            setTimeout(() => {
+                proc.stdout.emit("data", '{"type":"agent_settled"}\n');
+                proc.emit("close", 0);
+            }, 0);
+            return proc;
+        });
+
+        await runAgent("/tmp", agents, "Test", "task", undefined, undefined, undefined, undefined, undefined, results => ({ results }));
+
+        expect(capturedStdin).not.toBeNull();
+        expect((capturedStdin as unknown as MockWritable).destroyed).toBe(true);
+    });
+
+    test("closes stdin on process error so the child process can exit", async () => {
+        let capturedStdin: MockWritable | null = null;
+        mockSpawn.mockImplementationOnce(() => {
+            const proc = new MockChildProcess();
+            capturedStdin = proc.stdin as MockWritable;
+            setTimeout(() => {
+                proc.emit("error", new Error("spawn failed"));
+            }, 0);
+            return proc;
+        });
+
+        await runAgent("/tmp", agents, "Test", "task", undefined, undefined, undefined, undefined, undefined, results => ({ results }));
+
+        expect(capturedStdin).not.toBeNull();
+        expect((capturedStdin as unknown as MockWritable).destroyed).toBe(true);
     });
 
     test("passes model flag when agent has a concrete model", async () => {
