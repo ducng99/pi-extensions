@@ -9,7 +9,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 const NAME_MODEL_PROVIDER = "llama.cpp";
-const NAME_MODEL_ID = "lfm";
+const NAME_MODEL_ID = "titler";
 
 type NameResult = {
     name?: string;
