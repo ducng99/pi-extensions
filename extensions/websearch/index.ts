@@ -1,23 +1,22 @@
 /**
  * Websearch Tool
  *
- * Performs web searches via Ollama's web search API.
+ * Performs web searches via the `aimachine` provider's `/v1/search` endpoint.
  */
 
 import { type ExtensionAPI, truncateHead } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
 import { WebContentCache } from "../shared/web-content-cache/index";
-import type { WebSearchResponse } from "./ollama";
-import { ollamaWebSearch } from "./ollama";
+import { aimachineWebSearch, type WebSearchResponse } from "./aimachine";
 import { WebSearchParams } from "./schema";
 
 function formatResults(data: WebSearchResponse): string {
     const lines = data.results.map((r, i) => {
         const title = r.title || "(no title)";
 
-        let content = r.content;
-        const truncatedContent = truncateHead(r.content, { maxLines: 20, maxBytes: 1024 });
+        let content = r.snippet;
+        const truncatedContent = truncateHead(r.snippet, { maxLines: 20, maxBytes: 1024 });
         if (truncatedContent.truncated) {
             content = truncatedContent.content + " ...(truncated, fetch the URL using webfetch to get full content)";
         }
@@ -69,17 +68,17 @@ IMPORTANT - Use the correct year in search queries:
         ],
         parameters: WebSearchParams,
 
-        async execute(_toolCallId, params, signal) {
+        async execute(_toolCallId, params, signal, _onUpdate, ctx) {
             const maxResults = params.max_results ?? 5;
 
             try {
-                const data = await ollamaWebSearch(params.query, maxResults, signal);
+                const data = await aimachineWebSearch(params.query, maxResults, ctx.modelRegistry, signal);
 
-                // Cache the full page content so a later webfetch of the same
-                // URL can skip the network fetch and HTML→markdown conversion.
+                // Cache the snippet so a later webfetch of the same URL can
+                // skip the network fetch and HTML→markdown conversion.
                 for (const r of data.results) {
-                    if (r.url && r.content) {
-                        await cache.set(r.url, r.content);
+                    if (r.url && r.snippet) {
+                        await cache.set(r.url, r.snippet);
                     }
                 }
 
