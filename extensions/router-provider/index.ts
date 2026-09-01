@@ -28,7 +28,32 @@ export default async function (pi: ExtensionAPI) {
                 },
             },
         },
-        models: [],
+        models: [
+            {
+                id: "fast",
+                name: "Fast",
+                api: "openai-completions",
+                provider: PROVIDER_ID,
+                baseUrl: BASE_URL,
+                reasoning: true,
+                input: ["text", "image"],
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                contextWindow: 1_001_000,
+                maxTokens: 131072,
+            },
+            {
+                id: "large",
+                name: "Large",
+                api: "openai-completions",
+                provider: PROVIDER_ID,
+                baseUrl: BASE_URL,
+                reasoning: true,
+                input: ["text", "image"],
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                contextWindow: 1_001_000,
+                maxTokens: 131072,
+            },
+        ],
         async fetchModels(context) {
             const response = await fetch(BASE_URL + "/models", {
                 headers: {
