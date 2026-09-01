@@ -302,7 +302,7 @@ async function requestScore(messages: ChatMessage[], options: RequestOptions = {
         return { decision: "ask", reason: `Auto mode: allow confidence ${allowProb.toFixed(2)} < ${ALLOW_CONFIDENCE_THRESHOLD} threshold` };
     }
 
-    return { decision: bestLabel, reason: `Auto mode (P(allow)=${probs.allow!.toFixed(2)}, P(ask)=${probs.ask!.toFixed(2)}, P(deny)=${probs.deny!.toFixed(2)})` };
+    return { decision: bestLabel, reason: `Auto mode (allow=${probs.allow!.toFixed(2)}, ask=${probs.ask!.toFixed(2)}, deny=${probs.deny!.toFixed(2)})` };
 }
 
 /**
