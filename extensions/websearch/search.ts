@@ -34,18 +34,13 @@ export interface WebSearchResponse {
  *   (i.e. the user hasn't logged in to the `aimachine` provider) or the
  *   request fails.
  */
-export async function aimachineWebSearch(
+export async function webSearch(
     query: string,
     maxResults: number,
     modelRegistry: ModelRegistry,
     signal?: AbortSignal,
 ): Promise<WebSearchResponse> {
-    const auth = await modelRegistry.getProviderAuth(PROVIDER_ID).catch((err: unknown) => {
-        throw new Error(
-            `Failed to resolve auth for provider "${PROVIDER_ID}": ${err instanceof Error ? err.message : String(err)}. `
-            + `Log in with "/login ${PROVIDER_ID}" or configure it in models.json.`,
-        );
-    });
+    const auth = await modelRegistry.getProviderAuth(PROVIDER_ID);
 
     const baseUrl = auth?.auth.baseUrl;
     if (!baseUrl) {
@@ -79,12 +74,12 @@ export async function aimachineWebSearch(
     });
 
     if (!response.ok) {
-        throw new Error(`AI Machine web search failed (${response.status} ${response.statusText}): ${await response.text()}`);
+        throw new Error(`Web search failed (${response.status} ${response.statusText}): ${await response.text()}`);
     }
 
     const data = (await response.json()) as WebSearchResponse;
     if (!Array.isArray(data.results)) {
-        throw new Error("AI Machine web search returned an unexpected payload.");
+        throw new Error("Web search returned an unexpected payload.");
     }
     return data;
 }

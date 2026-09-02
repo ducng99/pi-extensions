@@ -72,7 +72,7 @@ Your output must be:
 </examples>`,
             messages: [{ role: "user", content: "Generate a title for the following prompt:\n\n" + prompt, timestamp: Date.now() }],
         }, {
-            temperature: 0.05,
+            temperature: 0.6,
             thinking: false,
             reasoningEffort: "none",
             reasoning: "minimal",

@@ -8,8 +8,8 @@ import { type ExtensionAPI, truncateHead } from "@earendil-works/pi-coding-agent
 import { Text } from "@earendil-works/pi-tui";
 
 import { WebContentCache } from "../shared/web-content-cache/index";
-import { aimachineWebSearch, type WebSearchResponse } from "./aimachine";
 import { WebSearchParams } from "./schema";
+import { webSearch, type WebSearchResponse } from "./search";
 
 function formatResults(data: WebSearchResponse): string {
     const lines = data.results.map((r, i) => {
@@ -72,7 +72,7 @@ IMPORTANT - Use the correct year in search queries:
             const maxResults = params.max_results ?? 5;
 
             try {
-                const data = await aimachineWebSearch(params.query, maxResults, ctx.modelRegistry, signal);
+                const data = await webSearch(params.query, maxResults, ctx.modelRegistry, signal);
 
                 // Cache the snippet so a later webfetch of the same URL can
                 // skip the network fetch and HTML→markdown conversion.
