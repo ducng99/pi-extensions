@@ -22,9 +22,13 @@ export default async function (pi: ExtensionAPI) {
                     };
                 },
                 async resolve({ credential }) {
-                    return credential?.key
-                        ? { auth: { apiKey: credential.key }, source: "stored API key" }
-                        : undefined;
+                    return {
+                        auth: {
+                            apiKey: credential?.key,
+                            baseUrl: BASE_URL,
+                        },
+                        source: "Tom API key",
+                    };
                 },
             },
         },
