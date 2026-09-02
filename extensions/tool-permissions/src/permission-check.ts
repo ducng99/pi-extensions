@@ -187,10 +187,7 @@ export function isOutOfBounds(
  * `reason` may explain *why* it is being asked (e.g. the bash command was too
  * complex to analyze or failed to parse).
  */
-export type PermissionDecision
-    = | { decision: "deny" }
-        | { decision: "allow"; reason?: string }
-        | { decision: "ask"; reason?: string };
+export type PermissionDecision = { decision: "allow" | "ask" | "deny"; reason?: string };
 
 /** Reason shown when a bash command could not be parsed by tree-sitter. */
 export const REASON_BASH_PARSE_ERROR = "Unable to parse the command";

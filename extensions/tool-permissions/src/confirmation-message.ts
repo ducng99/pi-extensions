@@ -1,6 +1,6 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import { type Theme, truncateHead } from "@earendil-works/pi-coding-agent";
 
-export function formatConfirmMessage(theme: Theme, toolName: string, input: Record<string, unknown>, cwd: string, reason?: string): string {
+export function formatConfirmMessage(theme: Theme, toolName: string, input: Record<string, unknown>, cwd: string, reason?: string, hasUI?: boolean): string {
     const lines: string[] = [];
 
     switch (toolName) {
@@ -15,8 +15,11 @@ export function formatConfirmMessage(theme: Theme, toolName: string, input: Reco
             break;
         }
         case "bash": {
-            const command = input.command;
+            let command = input.command;
             if (typeof command === "string") {
+                if (hasUI === false) {
+                    command = truncateHead(command, { maxLines: 10, maxBytes: 1000 });
+                }
                 lines.push(`Command: ${command}`);
             }
             break;
@@ -38,8 +41,7 @@ export function formatConfirmMessage(theme: Theme, toolName: string, input: Reco
             lines.push(`List: ${path}`);
             break;
         }
-        case "webfetch":
-        case "WebFetch": {
+        case "webfetch": {
             const url = input.url;
             const prompt = input.prompt;
             if (typeof url === "string") {
@@ -50,8 +52,7 @@ export function formatConfirmMessage(theme: Theme, toolName: string, input: Reco
             }
             break;
         }
-        case "websearch":
-        case "WebSearch": {
+        case "websearch": {
             const query = input.query;
             if (typeof query === "string") {
                 lines.push(`Query: ${query}`);

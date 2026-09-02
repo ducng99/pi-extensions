@@ -99,7 +99,7 @@ export default function (pi: ExtensionAPI) {
         if (decision.decision === "deny") {
             return {
                 block: true,
-                reason: `${toolName} is denied by your permission settings.`,
+                reason: decision.reason ?? `${toolName} is denied by your permission settings.`,
             };
         }
 
@@ -146,10 +146,10 @@ export default function (pi: ExtensionAPI) {
             // Fallback: confirm() works in both TUI and RPC modes. In RPC
             // mode it emits extension_ui_request → parent forwards to main
             // session UI → extension_ui_response resolves the promise.
-            const reason = decision.reason ? ` (${decision.reason})` : "";
+            const contextMsg = formatConfirmMessage(ctx.ui.theme, toolName, event.input as Record<string, unknown>, ctx.cwd, decision.reason, ctx.hasUI);
             const allowed = await ctx.ui.confirm(
                 `Allow ${toolName}?`,
-                `Allow ${toolName} to run?${reason}`,
+                contextMsg,
             );
 
             if (allowed) {
