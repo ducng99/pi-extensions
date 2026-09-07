@@ -32,52 +32,27 @@ export async function sanitizeWithPiSession(content: string, prompt?: string, op
     if (prompt) {
         const modelRuntime = await ModelRuntime.create();
 
-        const models = [
-            ["aimachine", "fast"],
-            ["opencode-go", "deepseek-v4-flash"],
-        ] as const;
-
         const builtPrompt = buildPrompt(content, prompt);
 
-        let sanitized = false;
-        let lastError: unknown;
+        const model = modelRuntime.getModel("aimachine", "fast");
+        if (!model) throw new Error("Model not found");
 
-        // Try each model in order: a model is skipped if it is unavailable, and
-        // retried with the next one if the completion request itself fails.
-        for (const [provider, modelId] of models) {
-            if (options?.signal?.aborted) throw new Error("Sanitization canceled");
+        const response = await modelRuntime.complete(model, {
+            systemPrompt: SYSTEM_PROMPT,
+            messages: [{ role: "user", content: builtPrompt, timestamp: Date.now() }],
+        }, {
+            thinking: false,
+            reasoningEffort: "none",
+            reasoning: "minimal",
+            maxRetryDelayMs: 5000,
+            timeoutMs: 30_000,
+            signal: options?.signal,
+        });
 
-            const model = modelRuntime.getModel(provider, modelId);
-            if (!model) continue;
-
-            try {
-                const response = await modelRuntime.complete(model, {
-                    systemPrompt: SYSTEM_PROMPT,
-                    messages: [{ role: "user", content: builtPrompt, timestamp: Date.now() }],
-                }, {
-                    thinking: false,
-                    reasoningEffort: "none",
-                    reasoning: "minimal",
-                    maxRetryDelayMs: 5000,
-                    timeoutMs: 30_000,
-                    signal: options?.signal,
-                });
-
-                result = response.content.reduce((msg, cur) => {
-                    if (cur.type === "text") msg += cur.text;
-                    return msg;
-                }, "");
-                sanitized = true;
-                break;
-            }
-            catch (error) {
-                lastError = error;
-            }
-        }
-
-        if (!sanitized) {
-            throw lastError ?? new Error("No model available for sanitization");
-        }
+        result = response.content.reduce((msg, cur) => {
+            if (cur.type === "text") msg += cur.text;
+            return msg;
+        }, "");
     }
 
     const truncatedResult = truncateHead(result, { maxBytes: 1024 * 2, maxLines: 50 });

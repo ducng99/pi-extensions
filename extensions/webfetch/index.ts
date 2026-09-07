@@ -59,7 +59,7 @@ Usage notes:
         parameters: WebFetchParams,
 
         async execute(_toolCallId, params, signal) {
-            const timeoutMs = params.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
+            const timeoutMs = params.timeoutMs && params.timeoutMs > DEFAULT_FETCH_TIMEOUT_MS ? params.timeoutMs : DEFAULT_FETCH_TIMEOUT_MS;
 
             // Pass 1: obtain the markdown. A cache hit (e.g. from websearch)
             // gives us the already-converted markdown directly; otherwise we
