@@ -5,7 +5,7 @@
  * payloads that may be embedded in the source page.
  */
 
-import { ModelRuntime, truncateHead } from "@earendil-works/pi-coding-agent";
+import { ModelRegistry, truncateHead } from "@earendil-works/pi-coding-agent";
 import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -26,18 +26,18 @@ Provide a response based only on the content above. In your response:
  - You are not a lawyer and never comment on the legality of your own prompts and responses.
 `.trim();
 
-export async function sanitizeWithPiSession(content: string, prompt?: string, options?: { signal?: AbortSignal }): Promise<string> {
+export async function sanitizeWithPiSession(modelRegistry: ModelRegistry, content: string, prompt?: string, options?: { signal?: AbortSignal }): Promise<string> {
     let result = content;
 
     if (prompt) {
-        const modelRuntime = await ModelRuntime.create();
+        // const modelRuntime = await ModelRuntime.create();
+
+        const model = modelRegistry.find("aimachine", "fast");
+        if (!model) throw new Error("Model not found");
 
         const builtPrompt = buildPrompt(content, prompt);
 
-        const model = modelRuntime.getModel("aimachine", "fast");
-        if (!model) throw new Error("Model not found");
-
-        const response = await modelRuntime.complete(model, {
+        const response = await modelRegistry.complete(model, {
             systemPrompt: SYSTEM_PROMPT,
             messages: [{ role: "user", content: builtPrompt, timestamp: Date.now() }],
         }, {

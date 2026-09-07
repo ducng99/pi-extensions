@@ -58,7 +58,7 @@ Usage notes:
         ],
         parameters: WebFetchParams,
 
-        async execute(_toolCallId, params, signal) {
+        async execute(_toolCallId, params, signal, _, ctx) {
             const timeoutMs = params.timeoutMs && params.timeoutMs > DEFAULT_FETCH_TIMEOUT_MS ? params.timeoutMs : DEFAULT_FETCH_TIMEOUT_MS;
 
             // Pass 1: obtain the markdown. A cache hit (e.g. from websearch)
@@ -159,7 +159,7 @@ Usage notes:
 
             // Pass 2: sanitize via pi session (single path for cache + network).
             try {
-                const result = await sanitizeWithPiSession(markdown, params.prompt, { signal });
+                const result = await sanitizeWithPiSession(ctx.modelRegistry, markdown, params.prompt, { signal });
                 return {
                     content: [{ type: "text" as const, text: result }],
                     details: {

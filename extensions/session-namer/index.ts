@@ -5,8 +5,7 @@
  * model when available, otherwise falls back to the session's default model.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 const NAME_MODEL_PROVIDER = "llama.cpp";
 const NAME_MODEL_ID = "titler";
@@ -16,15 +15,14 @@ type NameResult = {
     error?: string;
 };
 
-async function generateName(prompt: string): Promise<NameResult> {
+async function generateName(modelRegistry: ModelRegistry, prompt: string): Promise<NameResult> {
     try {
-        const modelRuntime = await ModelRuntime.create({ allowModelNetwork: true });
-        const dedicated = modelRuntime.getModel(NAME_MODEL_PROVIDER, NAME_MODEL_ID);
+        const dedicated = modelRegistry.find(NAME_MODEL_PROVIDER, NAME_MODEL_ID);
         if (!dedicated) {
             return { error: `Model "${NAME_MODEL_PROVIDER}/${NAME_MODEL_ID}" unavailable` };
         }
 
-        const response = await modelRuntime.complete(dedicated, {
+        const response = await modelRegistry.complete(dedicated, {
             systemPrompt: `You are a title generator. You output ONLY a thread title. Nothing else.
 
 <task>
@@ -104,7 +102,7 @@ export default function sessionNamer(pi: ExtensionAPI) {
 
         const notify = ctx.ui.notify;
 
-        generateName(prompt).then((result) => {
+        generateName(ctx.modelRegistry, prompt).then((result) => {
             if (result.name) {
                 pi.setSessionName(result.name);
             }
