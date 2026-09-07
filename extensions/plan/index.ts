@@ -61,6 +61,8 @@ export default function planExtension(pi: ExtensionAPI) {
             customType: "plan",
             content: "Plan mode disabled. You can now make edits, run tools and take actions.",
             display: false,
+        }, {
+            deliverAs: "nextTurn",
         });
     }
 
@@ -151,8 +153,10 @@ export default function planExtension(pi: ExtensionAPI) {
         ctx.ui.notify("Plan mode on", "info");
         pi.sendMessage({
             customType: "plan",
-            content: "Plan mode enabled. Only read-only tools and plan writing are allowed. " + (includeGuide ? PLAN_GUIDE_PROMPT : "Follow the plan workflow you already have."),
+            content: "Plan mode enabled. Only read-only tools and plan writing are allowed.\n\n" + (includeGuide ? PLAN_GUIDE_PROMPT.trim() : "Follow the plan workflow you already have."),
             display: false,
+        }, {
+            deliverAs: "nextTurn",
         });
     }
 
@@ -205,7 +209,7 @@ export default function planExtension(pi: ExtensionAPI) {
 
         if (choice?.startsWith("Implement now")) {
             deactivatePlanMode(ctx);
-            pi.sendUserMessage("Implement the plan now.", { deliverAs: "followUp" });
+            pi.sendUserMessage("Implement the plan now.");
         }
         else if (choice?.startsWith("Clear & implement")) {
             ctx.ui.notify("Clear & implement: not yet implemented.", "warning");
