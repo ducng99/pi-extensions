@@ -96,7 +96,18 @@ function isOutOfBoundsPath(path: string, resolveCwd: string, boundaryCwd: string
 // Argument String for Pattern Matching
 // ============================================================================
 
-function buildArgString(toolName: string, input: Record<string, unknown>): string {
+/**
+ * Build a compact string that identifies the *argument* of a tool call for
+ * pattern matching (e.g. the file path for `edit`/`read`/`write`, the command
+ * for `bash`, the URL for `webfetch`). Returns `""` for tools with no
+ * meaningful argument (or unknown tools).
+ *
+ * Exported so the session allowlist in the extension entry point can key its
+ * memoization on the same identifier that the permission rules use — meaning
+ * "allow this for the session" matches exactly what an explicit allow rule
+ * would have matched.
+ */
+export function buildArgString(toolName: string, input: Record<string, unknown>): string {
     switch (toolName) {
         case "edit":
         case "write":

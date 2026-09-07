@@ -19,11 +19,12 @@
 import type { ExtensionAPI, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 
 import { initParser } from "../shared/bash-parser/index";
-import { type PermissionResult, PermissionSelector } from "../shared/tui-components/index";
+import { type PermissionResult, PermissionSelector, type PermissionSelectorOption } from "../shared/tui-components/index";
 import { loadClassifier } from "./src/classifier";
 import { formatConfirmMessage } from "./src/confirmation-message";
 import { checkPermission } from "./src/permission-check";
 import type { ParsedPermissions } from "./src/permission-parsing";
+import { SessionAllowlist } from "./src/session-allowlist";
 import { buildSessionContext } from "./src/session-context";
 import { collectAllSettings, mergePermissions, setPlanModePermissions } from "./src/settings-loading";
 
@@ -49,6 +50,12 @@ async function ensureParserInitialized(): Promise<void> {
 export default function (pi: ExtensionAPI) {
     let automodeEnabled = true;
 
+    // Per-session memoization of "Yes, allow this session" approvals. Lives
+    // for the lifetime of this extension instance (one pi process); the
+    // extension factory is re-entered on every session_start, so the set is
+    // naturally reset between sessions.
+    const sessionAllowlist = new SessionAllowlist();
+
     // Forward plan-mode toggling from the plan extension (over the shared event
     // bus) into the settings loader, which merges them like the subagent file.
     pi.events.on("plan_mode:activated", (data) => {
@@ -73,6 +80,16 @@ export default function (pi: ExtensionAPI) {
 
     pi.on("tool_call", async (event: ToolCallEvent, ctx): Promise<ToolCallEventResult | void> => {
         const toolName = event.toolName;
+        const input = event.input as Record<string, unknown>;
+
+        // Session-scoped approvals: a prior "Yes, allow this session" decision
+        // skips both the permission check and the prompt. Bash commands are
+        // excluded from this fast path because each invocation is independent
+        // (different command strings) and a session-wide allow for `bash` would
+        // be too coarse to be useful.
+        if (toolName !== "bash" && sessionAllowlist.allows(toolName, input)) {
+            return undefined;
+        }
 
         // Ensure parser is initialized before checking permissions
         await ensureParserInitialized();
@@ -88,7 +105,7 @@ export default function (pi: ExtensionAPI) {
         // hasn't been appended yet), so no self-exclusion logic is needed.
         const decision = await checkPermission(
             toolName,
-            event.input as Record<string, unknown>,
+            input,
             merged,
             ctx.cwd,
             () => automodeEnabled,
@@ -109,13 +126,29 @@ export default function (pi: ExtensionAPI) {
             // simpler confirm() dialog which is forwarded to the parent session
             // via the extension_ui_request/extension_ui_response protocol.
             const customResult = await ctx.ui.custom<PermissionResult>((tui, theme, _keybindings, done) => {
-                const contextMsg = formatConfirmMessage(theme, toolName, event.input as Record<string, unknown>, ctx.cwd, decision.reason);
+                const contextMsg = formatConfirmMessage(theme, toolName, input, ctx.cwd, decision.reason);
                 const question = `Allow ${toolName}?`;
                 const rows = tui.terminal.rows;
+
+                // Three-option layout (Yes / Yes, allow this session / No) for
+                // every non-bash tool. Bash is omitted because each command is
+                // independent — a session-wide "allow" for `bash` would be
+                // ambiguous and is left as the default two-option prompt.
+                const options: PermissionSelectorOption[] = toolName === "bash"
+                    ? [
+                            { label: "Yes", kind: "allow" },
+                            { label: "No", kind: "denyWithMessage" },
+                        ]
+                    : [
+                            { label: "Yes", kind: "allow" },
+                            { label: "Yes, allow this session", kind: "allowSession" },
+                            { label: "No", kind: "denyWithMessage" },
+                        ];
 
                 return new PermissionSelector(contextMsg, question, done, {
                     maxTitleLines: Math.max(4, Math.min(12, Math.floor(rows * 0.35))),
                     terminalRows: rows,
+                    options,
                 });
             }, {
                 overlay: true,
@@ -128,6 +161,11 @@ export default function (pi: ExtensionAPI) {
 
             if (customResult !== undefined) {
                 if (customResult.allow) {
+                    if (customResult.allowSession) {
+                        // Remember this tool/argument pair so subsequent matching
+                        // calls in the same session skip the prompt entirely.
+                        sessionAllowlist.add(toolName, input);
+                    }
                     return undefined;
                 }
                 if (customResult.message) {
@@ -145,8 +183,11 @@ export default function (pi: ExtensionAPI) {
 
             // Fallback: confirm() works in both TUI and RPC modes. In RPC
             // mode it emits extension_ui_request → parent forwards to main
-            // session UI → extension_ui_response resolves the promise.
-            const contextMsg = formatConfirmMessage(ctx.ui.theme, toolName, event.input as Record<string, unknown>, ctx.cwd, decision.reason, ctx.hasUI);
+            // session UI → extension_ui_response resolves the promise. It only
+            // supports yes/no, so the "allow this session" option is not
+            // surfaced here; users wanting session-scope can still rely on the
+            // TUI prompt, or add an explicit allow rule.
+            const contextMsg = formatConfirmMessage(ctx.ui.theme, toolName, input, ctx.cwd, decision.reason, ctx.hasUI);
             const allowed = await ctx.ui.confirm(
                 `Allow ${toolName}?`,
                 contextMsg,
