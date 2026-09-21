@@ -4,22 +4,16 @@ import type { PermissionDecision } from "./permission-check";
 import type { ClassifierSessionContext } from "./session-context";
 
 /**
- * Classifies a bash command as allow / ask / deny by querying an OpenAI-compatible
- * chat completions endpoint through pi's model manager.
+ * Classifies a bash command as allow / ask / deny by querying the classifier
+ * server's `/classify` endpoint through pi's model manager.
  *
- * The model outputs one of three labels (allow, ask, deny). The winning label
- * is chosen via softmax over the token logprobs at the first generated position.
+ * The request body is `{"text": "..."}`; the response is
+ * `{"label": "allow" | "ask" | "deny", "score": <confidence>}`.
  */
 
 // ============================================================================
 // Types
 // ============================================================================
-
-/** A chat message sent to the classifier endpoint. */
-interface ChatMessage {
-    role: "system" | "user";
-    content: string;
-}
 
 /** A fully resolved configuration (provider auth + defaults applied). */
 interface ResolvedClassifierConfig {
@@ -33,13 +27,12 @@ interface ResolvedClassifierConfig {
 // ============================================================================
 
 const PROVIDER = "llama.cpp";
-const MODEL = "cmd-classifier";
 const TIMEOUT_MS = 10_000;
 // Warmup gets a much longer budget: its whole point is to absorb the model's
 // one-time lazy load (llama.cpp can take minutes for large models), which
 // would otherwise blow the 10s probe timeout on the first real classification.
 const WARMUP_TIMEOUT_MS = 60_000;
-const ALLOW_CONFIDENCE_THRESHOLD = 0.8;
+const CONFIDENCE_THRESHOLD = 0.8;
 
 let config: ResolvedClassifierConfig | null = null;
 
@@ -86,19 +79,17 @@ export async function loadClassifier(modelRegistry: ModelRegistry) {
  * tens of seconds with llama.cpp and blow the probe timeout).
  */
 function warmupModel() {
-    requestScore(buildProbe("echo warmup"), { timeoutMs: WARMUP_TIMEOUT_MS }).catch(() => {});
+    requestScore(buildText("echo warmup"), { timeoutMs: WARMUP_TIMEOUT_MS }).catch(() => {});
 }
 
 // ============================================================================
-// Prompt Building
+// Text Building
 // ============================================================================
-
-const SYSTEM_PROMPT = "You are a strict safety moderator reviewing shell commands. You only answer `allow` or `ask` or `deny`";
 
 /**
  * Render a {@link ClassifierSessionContext} as the compact `<SessionContext>`
  * block the policy expects. Returns the block with leading/trailing newlines
- * so it slots cleanly into the probe, or an empty string when the context is
+ * so it slots cleanly into the text, or an empty string when the context is
  * absent (warmup, no-git-repo case).
  */
 function renderSessionContext(ctx: ClassifierSessionContext | undefined): string {
@@ -116,38 +107,15 @@ function renderSessionContext(ctx: ClassifierSessionContext | undefined): string
 }
 
 /**
- * Build the single probe message list for a bash command.
+ * Build the request text for a bash command.
  */
-function buildProbe(command: string, sessionContext?: ClassifierSessionContext): ChatMessage[] {
-    return [
-        { role: "system", content: SYSTEM_PROMPT },
-        {
-            role: "user",
-            content: `${renderSessionContext(sessionContext)}\n\n${command}`,
-        },
-    ];
+function buildText(command: string, sessionContext?: ClassifierSessionContext): string {
+    return `${renderSessionContext(sessionContext)}\n\n${command}`;
 }
 
 // ============================================================================
-// OpenAI-Compatible API Call
+// Classifier API Call
 // ============================================================================
-
-/** Reference allow / ask / deny tokens (after trim + lowercase). */
-const ALLOW_TOKENS = new Set(["allow", "allow.", "\"allow\"", "'allow'"]);
-const ASK_TOKENS = new Set(["ask", "ask.", "\"ask\"", "'ask'"]);
-const DENY_TOKENS = new Set(["deny", "deny.", "\"deny\"", "'deny'"]);
-
-const LABELS = ["allow", "ask", "deny"] as const;
-const LABEL_TOKENS: Record<string, Set<string>> = {
-    allow: ALLOW_TOKENS,
-    ask: ASK_TOKENS,
-    deny: DENY_TOKENS,
-};
-
-interface TopLogprob {
-    token: string;
-    logprob: number;
-}
 
 /** Error thrown when the classifier endpoint cannot be reached or misbehaves. */
 export class ClassifierError extends Error {
@@ -159,42 +127,6 @@ export class ClassifierError extends Error {
 }
 
 type Json = Record<string, unknown>;
-
-/**
- * Extract the `top_logprobs` of the first generated position from an OpenAI-
- * compatible chat completions response (shape: `choices[0].logprobs.content[0]
- * .top_logprobs`). Returns an empty list when the shape is unexpected.
- */
-function extractTopLogprobs(json: Json): TopLogprob[] {
-    const choices = json["choices"];
-    if (!Array.isArray(choices) || choices.length === 0) return [];
-
-    const firstChoice = choices[0];
-    if (typeof firstChoice !== "object" || firstChoice === null) return [];
-
-    const logprobs = (firstChoice as Json)["logprobs"];
-    if (typeof logprobs !== "object" || logprobs === null) return [];
-
-    const content = (logprobs as Json)["content"];
-    if (!Array.isArray(content) || content.length === 0) return [];
-
-    const firstPosition = content[0];
-    if (typeof firstPosition !== "object" || firstPosition === null) return [];
-
-    const top = (firstPosition as Json)["top_logprobs"];
-    if (!Array.isArray(top)) return [];
-
-    const result: TopLogprob[] = [];
-    for (const entry of top) {
-        if (typeof entry !== "object" || entry === null) continue;
-        const e = entry as Json;
-        const token = e["token"];
-        const logprob = e["logprob"];
-        if (typeof token !== "string" || typeof logprob !== "number") continue;
-        result.push({ token, logprob });
-    }
-    return result;
-}
 
 /**
  * Build the request headers from the resolved provider auth: provider
@@ -214,12 +146,11 @@ function buildRequestHeaders(resolved: ResolvedClassifierConfig): Record<string,
 }
 
 /**
- * POST `messages` to the endpoint's `/chat/completions` with `max_tokens=1`
- * and token logprobs, then return a {@link PermissionDecision} based on
- * the highest-probability label (allow / ask / deny) via softmax.
+ * POST `{"text"}` to the endpoint's `/classify` route and map the returned
+ * label / score pair to a {@link PermissionDecision}.
  *
  * Throws {@link ClassifierError} on network failures, HTTP errors, or a
- * response without usable logprobs.
+ * malformed response.
  */
 interface RequestOptions {
     /** Caller's abort signal (e.g. session abort); combined with the timeout. */
@@ -228,18 +159,12 @@ interface RequestOptions {
     timeoutMs?: number;
 }
 
-async function requestScore(messages: ChatMessage[], options: RequestOptions = {}): Promise<PermissionDecision> {
+async function requestScore(text: string, options: RequestOptions = {}): Promise<PermissionDecision> {
     if (!config) throw new ClassifierError("Classifier config not loaded");
 
-    const url = `${config.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+    const url = `${config.baseUrl.replace(/\/+$/, "")}/classify`;
 
-    const payload = {
-        model: MODEL,
-        messages,
-        max_tokens: 1,
-        logprobs: true,
-        top_logprobs: 20,
-    };
+    const payload = { text };
 
     // Always enforce the timeout, and also honour the caller's signal
     // (e.g. session abort) — whichever fires first aborts the request.
@@ -265,51 +190,30 @@ async function requestScore(messages: ChatMessage[], options: RequestOptions = {
     }
 
     const json = (await response.json()) as Json;
-    const top = extractTopLogprobs(json);
-    if (top.length === 0) {
-        throw new ClassifierError("Classifier response contained no usable logprobs");
+    const label = json["label"];
+    const score = json["score"];
+    if (typeof label !== "string" || typeof score !== "number" || !Number.isFinite(score)) {
+        throw new ClassifierError(`Classifier response had unexpected shape: ${JSON.stringify(json)}`);
     }
 
-    // Softmax over the allow/ask/deny logits at the first generated position.
-    const MISSING_LOGIT = -10.0;
-    const z: Record<string, number> = { allow: MISSING_LOGIT, ask: MISSING_LOGIT, deny: MISSING_LOGIT };
-    for (const tok of top) {
-        const t = tok.token.trim().toLowerCase();
-        for (const label of LABELS) {
-            if (LABEL_TOKENS[label]!.has(t)) {
-                z[label] = Math.max(z[label]!, tok.logprob);
-            }
-        }
+    const normalized = label.trim().toLowerCase();
+    if (normalized !== "allow" && normalized !== "ask" && normalized !== "deny") {
+        throw new ClassifierError(`Classifier returned unknown label "${label}"`);
     }
 
-    const expVals = LABELS.map(l => Math.exp(z[l]!));
-    const total = expVals.reduce((a, b) => a + b, 0);
-    const probs = Object.fromEntries(LABELS.map((l, i) => [l, expVals[i]! / total])) as Record<string, number>;
-
-    // Return the label with highest probability.
-    let bestLabel: "allow" | "ask" | "deny" = "ask";
-    let bestProb = -1;
-    for (const label of LABELS) {
-        if (probs[label]! > bestProb) {
-            bestProb = probs[label]!;
-            bestLabel = label;
-        }
+    // Downgrade to ask when the model says allow/deny but isn't confident enough.
+    if ((normalized === "allow" || normalized === "deny") && score < CONFIDENCE_THRESHOLD) {
+        return { decision: "ask", reason: `Auto mode: ${normalized} confidence ${score.toFixed(2)} < ${CONFIDENCE_THRESHOLD} threshold` };
     }
 
-    // Downgrade to ask when the model says allow but isn't confident enough.
-    const allowProb = probs.allow!;
-    if (bestLabel === "allow" && allowProb < ALLOW_CONFIDENCE_THRESHOLD) {
-        return { decision: "ask", reason: `Auto mode: allow confidence ${allowProb.toFixed(2)} < ${ALLOW_CONFIDENCE_THRESHOLD} threshold` };
-    }
-
-    return { decision: bestLabel, reason: `Auto mode (allow=${probs.allow!.toFixed(2)}, ask=${probs.ask!.toFixed(2)}, deny=${probs.deny!.toFixed(2)})` };
+    return { decision: normalized as "allow" | "ask" | "deny", reason: `Auto mode (label=${normalized}, score=${score.toFixed(2)})` };
 }
 
 /**
  * Classify a bash command as allow / ask / deny. The endpoint and key are resolved
  * from the `llama.cpp` provider via the model manager (see the module docs).
  *
- * Throws {@link ClassifierError} if auth cannot be resolved or the probe
+ * Throws {@link ClassifierError} if auth cannot be resolved or the request
  * fails.
  */
 export async function classifyBashCommand(
@@ -318,9 +222,9 @@ export async function classifyBashCommand(
     sessionContext?: ClassifierSessionContext,
 ): Promise<PermissionDecision> {
     try {
-        return await requestScore(buildProbe(command, sessionContext), { signal });
+        return await requestScore(buildText(command, sessionContext), { signal });
     }
     catch (err) {
-        return { decision: "ask", reason: "Classifier probe failed\n" + String(err) };
+        return { decision: "ask", reason: "Classifier request failed\n" + String(err) };
     }
 }
