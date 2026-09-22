@@ -62,6 +62,13 @@ interface McpToolSummary {
     inputSchema: unknown;
 }
 
+/** A tool exposed by a connected server. */
+export interface RegisteredTool {
+    /** Raw tool name on the MCP server. */
+    name: string;
+    description?: string;
+}
+
 export class Registry {
     private connections = new Map<string, ConnectedServer>();
     private registeredNames = new Set<string>();
@@ -189,6 +196,19 @@ export class Registry {
         const result = await conn.client.callTool({ name: toolName, arguments: args ?? {} });
         const { text, details } = formatToolResult(result as never);
         return { text, details, isError: result.isError === true };
+    }
+
+    /**
+     * Tools exposed by a connected server. Returns `undefined` when the server
+     * is not connected, so callers can distinguish "no tools" from "offline".
+     */
+    listTools(serverKey: string): RegisteredTool[] | undefined {
+        const conn = this.connections.get(serverKey);
+        if (!conn) return undefined;
+        return conn.tools.map(tool => ({
+            name: tool.name,
+            description: tool.description,
+        }));
     }
 
     async listResources(serverKey: string): Promise<unknown> {

@@ -108,7 +108,7 @@ rules (e.g. an `add` tool from server `test-server` becomes
 | `/mcp connect [<server>]` | Connect/disconnect all or one server.           |
 | `/mcp reconnect <server>` | Re-authenticate (triggers OAuth when needed). |
 | `/mcp disconnect <server>`| Tear down a server's connection.                |
-| `/mcp tools <server>`    | Count of tools exposed by a server.             |
+| `/mcp tools <server>`    | List the tools exposed by a server (name + description). |
 | `/mcp config`            | List the resolved server configuration.         |
 
 ### TUI helper tools (the LLM may call these)

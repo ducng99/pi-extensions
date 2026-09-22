@@ -81,6 +81,24 @@ describe("MCP client registry", () => {
         expect(registry.statuses()).toHaveLength(0);
     });
 
+    test("listTools returns tool names, pi names, and descriptions for connected servers", async () => {
+        const registry = new Registry();
+        await registry.connectAll(fakePi as never, dir, { projectTrusted: true });
+
+        const tools = registry.listTools("test-server");
+        expect(tools).toBeDefined();
+        expect(tools?.map(t => t.name).sort()).toEqual(["add", "greet"]);
+        expect(tools?.map(t => t.description).sort()).toEqual(["Add two numbers", "Say hello to a person"]);
+
+        await registry.disconnectAll();
+        expect(registry.listTools("test-server")).toBeUndefined();
+    });
+
+    test("listTools returns undefined for unknown servers", () => {
+        const registry = new Registry();
+        expect(registry.listTools("missing")).toBeUndefined();
+    });
+
     test("skips project servers when the project is not trusted", async () => {
         const registry = new Registry();
         const statuses = await registry.connectAll(fakePi as never, dir);

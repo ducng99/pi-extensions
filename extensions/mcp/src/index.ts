@@ -11,6 +11,7 @@
  *   /mcp connect [<key>]    — (re)connect all or one server
  *   /mcp reconnect <key>    — re-authenticate / reconnect (OAuth)
  *   /mcp disconnect <key>   — disconnect a server
+ *   /mcp tools <key>        — list the tools a server exposes
  *
  * See extensions/mcp/README.md for the config format.
  */

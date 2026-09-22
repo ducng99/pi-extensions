@@ -6,7 +6,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 import { loadServers, loadServersWithMissing } from "./config";
-import type { Registry } from "./registry";
+import type { RegisteredTool, Registry } from "./registry";
 import type { McpServerStatus } from "./types";
 
 function formatStatus(status: McpServerStatus): string {
@@ -21,6 +21,27 @@ function statusTable(registry: Registry, cwd: string): string {
     return statuses.map(formatStatus).join("\n");
 }
 
+function oneLine(text: string): string {
+    return text.replace(/\s+/g, " ").trim();
+}
+
+function truncate(text: string, max: number): string {
+    if (text.length <= max) return text;
+    return `${text.slice(0, max - 1).trimEnd()}…`;
+}
+
+function toolLine(tool: RegisteredTool): string {
+    const description = truncate(oneLine(tool.description ?? ""), 120);
+    return `• ${tool.name}${description ? ` — ${description}` : ""}`;
+}
+
+function toolsList(key: string, tools: RegisteredTool[]): string {
+    const lines = [...tools]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(toolLine);
+    return `"${key}" exposes ${tools.length} tool(s):\n\n${lines.join("\n")}`;
+}
+
 function missingEnvNote(cwd: string): string {
     const { missingEnv } = loadServersWithMissing(cwd);
     const lines: string[] = [];
@@ -33,11 +54,27 @@ function missingEnvNote(cwd: string): string {
 export function registerCommands(pi: ExtensionAPI, registry: Registry): void {
     const commandNames = ["status", "connect", "disconnect", "reconnect", "tools"];
 
+    /** Subcommands that take a server name as their second argument. */
+    const serverArgCommands = new Set(["connect", "disconnect", "reconnect", "tools"]);
+
     pi.registerCommand("mcp", {
         description: "Inspect, connect, disconnect, or re-authenticate MCP servers",
         getArgumentCompletions: (prefix: string) => {
+            const parts = prefix.split(/\s+/);
+            const sub = parts[0] ?? "";
+            const partial = parts[1] ?? "";
+
+            // If the first token is a server-arg subcommand, suggest server names
+            if (serverArgCommands.has(sub)) {
+                const servers = loadServers(process.cwd());
+                const items = servers.map(s => ({ value: `${sub} ${s.key}`, label: s.key, description: s.label !== s.key ? s.label : undefined }));
+                const filtered = items.filter(i => i.label.toLowerCase().startsWith(partial.toLowerCase()));
+                return filtered.length ? filtered : items;
+            }
+
+            // Otherwise suggest subcommand names
             const items = commandNames.map(v => ({ value: v, label: v }));
-            const filtered = items.filter(i => i.value.startsWith(prefix.toLowerCase()));
+            const filtered = items.filter(i => i.value.startsWith(sub.toLowerCase()));
             return filtered.length ? filtered : items;
         },
         handler: async (args, ctx) => {
@@ -94,8 +131,15 @@ export function registerCommands(pi: ExtensionAPI, registry: Registry): void {
                         ctx.ui.notify("Usage: /mcp tools <server>", "error");
                         break;
                     }
-                    const status = registry.statuses().find(s => s.server.key === key);
-                    ctx.ui.notify(status?.connected ? `"${key}" exposes ${status.tools} tool(s).` : `"${key}" is not connected.`, "info");
+                    const tools = registry.listTools(key);
+                    if (!tools) {
+                        ctx.ui.notify(`"${key}" is not connected. Run "/mcp connect ${key}" first.`, "error");
+                        break;
+                    }
+                    ctx.ui.notify(
+                        tools.length ? toolsList(key, tools) : `"${key}" is connected but exposes no tools.`,
+                        "info",
+                    );
                     break;
                 }
 

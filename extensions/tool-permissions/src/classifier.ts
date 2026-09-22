@@ -206,7 +206,7 @@ async function requestScore(text: string, options: RequestOptions = {}): Promise
         return { decision: "ask", reason: `Auto mode: ${normalized} confidence ${score.toFixed(2)} < ${CONFIDENCE_THRESHOLD} threshold` };
     }
 
-    return { decision: normalized as "allow" | "ask" | "deny", reason: `Auto mode (label=${normalized}, score=${score.toFixed(2)})` };
+    return { decision: normalized, reason: `Auto mode (label=${normalized}, score=${score.toFixed(2)})` };
 }
 
 /**
