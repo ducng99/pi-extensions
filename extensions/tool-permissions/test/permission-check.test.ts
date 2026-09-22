@@ -794,6 +794,12 @@ describe("checkPermission: MCP tools (mcp__<server>__<tool>)", () => {
         expect((await checkPermission("mcp__github__list_prs", {}, perms)).decision).toBe("allow");
     });
 
+    test("dashes in server and tool names are matched literally (not normalised)", async () => {
+        const perms = makePerms({ allow: [{ category: "mcp__hf-mcp-server", pattern: "*" }] });
+        expect((await checkPermission("mcp__hf-mcp-server__hub-repo-details", {}, perms)).decision).toBe("allow");
+        expect((await checkPermission("mcp__hf_mcp_server__hub_repo_details", {}, perms)).decision).toBe("ask");
+    });
+
     test("server wildcard rule (mcp__github__*) allows every tool on that server", async () => {
         const perms = makePerms({ allow: [{ category: "mcp__github__*", pattern: "*" }] });
         expect((await checkPermission("mcp__github__create_issue", {}, perms)).decision).toBe("allow");

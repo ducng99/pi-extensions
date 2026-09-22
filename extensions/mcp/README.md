@@ -128,6 +128,7 @@ extensions/mcp/
 ├── oauth.ts         # OAuth providers + loopback callback server + storage
 ├── jsonSchema.ts    # MCP JSON Schema -> TypeBox conversion
 ├── format.ts        # serializes CallToolResult into text
+├── render.ts        # renders tool-call rows (name + params preview)
 ├── commands.ts      # /mcp command + resource/prompt helper tools
 └── __fixtures__/    # tiny MCP server used by the tests
 ```

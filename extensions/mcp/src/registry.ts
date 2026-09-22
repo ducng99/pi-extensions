@@ -16,14 +16,15 @@ import { loadServersWithSource } from "./config";
 import { formatToolResult } from "./format";
 import { schemaFromParameters } from "./jsonSchema";
 import { InteractiveOAuthProvider, loopback, makeAuthProvider } from "./oauth";
+import { renderMcpCall } from "./render";
 import type { McpServerConfig, McpServerStatus } from "./types";
 
 const CLIENT_NAME = "pi-mcp";
 const CLIENT_VERSION = "1.0.0";
 
-/** Replace characters not allowed in pi tool/command names. */
+/** Replace characters not allowed in tool names. Dashes are allowed and preserved. */
 function sanitizeName(name: string): string {
-    const cleaned = name.replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+/, "");
+    const cleaned = name.replace(/[^A-Za-z0-9_-]/g, "_").replace(/^_+/, "");
     return cleaned || "tool";
 }
 
@@ -318,5 +319,6 @@ function defineTool(registry: Registry, conn: ConnectedServer, tool: McpToolSumm
                 isError: result.isError,
             };
         },
+        renderCall: (args, theme) => renderMcpCall(name, args, theme),
     };
 }

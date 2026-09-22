@@ -35,6 +35,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                 required: ["name"],
             },
         },
+        {
+            name: "echo-back",
+            description: "Echo a message with dashes in its name",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    message: { type: "string" },
+                },
+                required: ["message"],
+            },
+        },
     ],
 }));
 
@@ -52,6 +63,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (name === "greet") {
         const text = `${a.excited ? "HELLO" : "Hello"}, ${String(a.name)}!`;
         return { content: [{ type: "text", text }] };
+    }
+    if (name === "echo-back") {
+        return { content: [{ type: "text", text: String(a.message ?? "") }] };
     }
     return { content: [{ type: "text", text: `unknown tool: ${name}` }], isError: true };
 });

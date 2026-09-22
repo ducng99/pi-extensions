@@ -58,13 +58,16 @@ describe("MCP client registry", () => {
 
         expect(statuses).toHaveLength(1);
         expect(statuses[0]?.connected).toBe(true);
-        expect(statuses[0]?.tools).toBe(2);
+        expect(statuses[0]?.tools).toBe(3);
 
+        // Dashes in server keys and tool names are preserved, not normalised
+        // to underscores.
         const names = registered.map(t => t.name);
-        expect(names).toContain("mcp__test_server__add");
-        expect(names).toContain("mcp__test_server__greet");
+        expect(names).toContain("mcp__test-server__add");
+        expect(names).toContain("mcp__test-server__greet");
+        expect(names).toContain("mcp__test-server__echo-back");
 
-        const addTool = registered.find(t => t.name === "mcp__test_server__add");
+        const addTool = registered.find(t => t.name === "mcp__test-server__add");
         expect(addTool?.parameters).toBeDefined();
         const props = (addTool?.parameters as { properties?: Record<string, unknown> })?.properties;
         expect(props?.a).toBeDefined();
@@ -87,8 +90,12 @@ describe("MCP client registry", () => {
 
         const tools = registry.listTools("test-server");
         expect(tools).toBeDefined();
-        expect(tools?.map(t => t.name).sort()).toEqual(["add", "greet"]);
-        expect(tools?.map(t => t.description).sort()).toEqual(["Add two numbers", "Say hello to a person"]);
+        expect(tools?.map(t => t.name).sort()).toEqual(["add", "echo-back", "greet"]);
+        expect(tools?.map(t => t.description).sort()).toEqual([
+            "Add two numbers",
+            "Echo a message with dashes in its name",
+            "Say hello to a person",
+        ]);
 
         await registry.disconnectAll();
         expect(registry.listTools("test-server")).toBeUndefined();
