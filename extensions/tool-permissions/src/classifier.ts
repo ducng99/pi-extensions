@@ -26,7 +26,7 @@ interface ResolvedClassifierConfig {
 // Defaults
 // ============================================================================
 
-const PROVIDER = "llama.cpp";
+const PROVIDER = "autoshell";
 const TIMEOUT_MS = 10_000;
 // Warmup gets a much longer budget: its whole point is to absorb the model's
 // one-time lazy load (llama.cpp can take minutes for large models), which
@@ -126,8 +126,6 @@ export class ClassifierError extends Error {
     }
 }
 
-type Json = Record<string, unknown>;
-
 /**
  * Build the request headers from the resolved provider auth: provider
  * headers (minus any `Authorization`, which is set from the API key), then
@@ -189,7 +187,7 @@ async function requestScore(text: string, options: RequestOptions = {}): Promise
         throw new ClassifierError(`Classifier request failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
     }
 
-    const json = (await response.json()) as Json;
+    const json = (await response.json()) as Record<string, unknown>;
     const label = json["label"];
     const score = json["score"];
     if (typeof label !== "string" || typeof score !== "number" || !Number.isFinite(score)) {
