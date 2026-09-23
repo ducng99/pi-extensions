@@ -21,7 +21,7 @@ import { classifyBashCommand as classifyWithText, loadClassifier as loadText } f
 
 type ClassifierBackend = "text" | "llm";
 
-const CLASSIFIER_BACKEND: ClassifierBackend = "text";
+const CLASSIFIER_BACKEND: ClassifierBackend = "llm";
 
 export async function loadClassifier(modelRegistry: ModelRegistry) {
     if (CLASSIFIER_BACKEND === "llm") {

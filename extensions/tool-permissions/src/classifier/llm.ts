@@ -37,14 +37,11 @@ import { ClassifierError, type ClassifierLabel, normalizeLabel } from "./types";
 // ============================================================================
 
 const PROVIDER = "llama.cpp";
-/** Hardcoded classifier model on the provider above. Change to switch. */
 const LLM_MODEL = "qwen-coder";
 const TIMEOUT_MS = 30_000;
-/** Matches Claude Code's auto mode `max_tokens` (4096). */
-const MAX_TOKENS = 4096;
 
 /** Label vocabulary — satisfies {@link ClassifierLabel}. */
-const LABELS = ["allow", "ask", "deny"] as const satisfies readonly ClassifierLabel[];
+const LABELS: ClassifierLabel[] = ["allow", "ask", "deny"];
 
 /**
  * Structured output (findings §8): the reply must validate against
@@ -55,11 +52,9 @@ const LABELS = ["allow", "ask", "deny"] as const satisfies readonly ClassifierLa
 const RESPONSE_FORMAT = {
     type: "json_schema",
     schema: {
-        title: "ClassificationResult",
         type: "object",
         properties: {
             label: {
-                title: "Label",
                 type: "string",
                 enum: LABELS,
             },
@@ -67,7 +62,7 @@ const RESPONSE_FORMAT = {
         required: ["label"],
         additionalProperties: false,
     },
-} as const;
+};
 
 /** Per-line truncation — keeps individual transcript entries compact. */
 const MAX_USER_TEXT = 500;
@@ -352,7 +347,9 @@ async function requestLabel(
         // schema-constrained `response_format` for the `{"label": ...}` reply.
         response = await registry.complete(model, { systemPrompt, messages }, {
             temperature: 0,
-            maxTokens: MAX_TOKENS,
+            reasoning: "off",
+            reasoningEffort: "none",
+            thinking: { enabled: false },
             timeoutMs: TIMEOUT_MS,
             signal: options.signal,
             samplingParams: { response_format: RESPONSE_FORMAT },
