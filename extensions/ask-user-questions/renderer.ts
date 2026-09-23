@@ -46,7 +46,7 @@ export function renderResult(
         const q = details.questions[a.questionIndex];
         if (!q) return "";
         const icon = theme.fg("success", "✓");
-        const header = theme.fg("accent", q.header);
+        const header = theme.bold(theme.fg("accent", q.header));
         if (a.customText) {
             return `${icon} ${header}: ${theme.fg("text", `"${a.customText}"`)}`;
         }

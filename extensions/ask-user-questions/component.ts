@@ -291,10 +291,16 @@ export function createQuestionsComponent(
         lines.push("");
         let help: string;
         if (inputMode) {
-            help = "←→ move cursor • ↑↓ exit input • Enter confirm • Esc cancel";
+            const single = questions.length === 1 && !questions[0]!.multipleChoice;
+            help = single
+                ? "←→ move cursor • ↑↓ exit input • Enter confirm & submit • Esc cancel"
+                : "←→ move cursor • ↑↓ exit input • Enter confirm • Esc cancel";
         }
         else if (questions.length > 1) {
             help = "Tab navigate tabs • ↑↓ navigate options • Space/Enter select • Esc cancel";
+        }
+        else if (!questions[0]!.multipleChoice) {
+            help = "↑↓ navigate • Space/Enter select & submit • Esc cancel";
         }
         else {
             help = "↑↓ navigate • Space/Enter select • Esc cancel";
@@ -321,6 +327,14 @@ export function createQuestionsComponent(
                     // Confirm custom text
                     customTexts.set(currentTab, value);
                     selections[currentTab]!.delete(OTHER_INDEX);
+                    // Single single-choice question: submit immediately,
+                    // skipping the Submit confirm stage
+                    if (questions.length === 1 && !questions[currentTab]?.multipleChoice) {
+                        inputMode = false;
+                        otherInput = null;
+                        done(buildResult(false));
+                        return;
+                    }
                 }
                 inputMode = false;
                 otherInput = null;
@@ -553,6 +567,12 @@ export function createQuestionsComponent(
 
                 // Enter auto-advances to next tab for radio
                 if (matchesKey(data, Key.enter)) {
+                    // Single single-choice question: submit immediately,
+                    // skipping the Submit confirm stage
+                    if (questions.length === 1) {
+                        done(buildResult(false));
+                        return;
+                    }
                     if (currentTab < questions.length - 1) {
                         currentTab++;
                     }
