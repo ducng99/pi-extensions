@@ -6,11 +6,10 @@ import { checkPermission, isOutOfBounds, REASON_BASH_COMPLEX, REASON_BASH_PARSE_
 import type { ParsedPermissions } from "../src/permission-parsing";
 import { parseClaudePerms } from "../src/permission-parsing";
 
-// The real classifier (`../src/classifier.ts`) queries a model server over the
-// network, so it is replaced with a controllable mock for this whole file.
-// `mock.module` overwrites the exports of the already-loaded module and
-// permission-check's live binding picks up the replacement (see
-// `_scratch.test.ts`).
+// The real classifier (`../src/classifier`) queries a model server
+// over the network, so it is replaced with a controllable mock for this whole
+// file. `mock.module` overwrites the exports of the already-loaded module and
+// permission-check's live binding picks up the replacement.
 const classifyMock = mock(
     async (command: string, signal?: AbortSignal): Promise<PermissionDecision> => {
         // Fail loudly if a test triggers classification without opting in via
@@ -19,7 +18,7 @@ const classifyMock = mock(
     },
 );
 
-mock.module("../src/classifier.ts", () => ({
+mock.module("../src/classifier", () => ({
     classifyBashCommand: classifyMock,
 }));
 

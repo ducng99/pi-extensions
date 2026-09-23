@@ -20,7 +20,7 @@ import type { ExtensionAPI, ToolCallEvent, ToolCallEventResult } from "@earendil
 
 import { initParser } from "../shared/bash-parser/index";
 import { type PermissionResult, PermissionSelector, type PermissionSelectorOption } from "../shared/tui-components/index";
-import { loadClassifier } from "./src/classifier";
+import { loadClassifier, setClassifierIntentFiles } from "./src/classifier";
 import { formatConfirmMessage } from "./src/confirmation-message";
 import { checkPermission } from "./src/permission-check";
 import type { ParsedPermissions } from "./src/permission-parsing";
@@ -63,6 +63,13 @@ export default function (pi: ExtensionAPI) {
     });
     pi.events.on("plan_mode:deactivated", () => {
         setPlanModePermissions(null);
+    });
+
+    // Feed the session's pre-loaded instruction files (AGENTS.md / CLAUDE.md)
+    // to the LLM classifier as user intent — Claude Code sends CLAUDE.md to
+    // its auto mode classifier the same way. Refreshed every turn.
+    pi.on("before_agent_start", (event) => {
+        setClassifierIntentFiles(event.systemPromptOptions.contextFiles);
     });
 
     // Initialize parser eagerly at startup
@@ -111,6 +118,7 @@ export default function (pi: ExtensionAPI) {
             () => automodeEnabled,
             ctx.signal,
             () => buildSessionContext(ctx.sessionManager.getEntries(), ctx.cwd, pi.exec),
+            () => ctx.sessionManager.getEntries(),
         );
 
         if (decision.decision === "deny") {

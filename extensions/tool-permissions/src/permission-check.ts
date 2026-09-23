@@ -1,3 +1,4 @@
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { writeFile } from "fs/promises";
 import { homedir } from "os";
 import { isAbsolute, normalize, relative, resolve, sep } from "path";
@@ -212,6 +213,8 @@ export const REASON_BASH_COMPLEX = "Command uses complex structures";
  * non-bash tool calls and rule-resolved bash commands pay nothing.
  */
 type SessionContextProvider = () => Promise<ClassifierSessionContext>;
+/** Returns the live session entries for transcript-based classifiers (LLM backend). Sync — no git work. */
+type SessionEntriesProvider = () => SessionEntry[];
 
 export async function checkPermission(
     toolName: string,
@@ -221,9 +224,10 @@ export async function checkPermission(
     isAutomodeOn?: () => boolean,
     signal?: AbortSignal,
     sessionContextProvider?: SessionContextProvider,
+    sessionEntriesProvider?: SessionEntriesProvider,
 ): Promise<PermissionDecision> {
     if (toolName === "bash") {
-        return await checkBashPermission(input, merged, cwd, isAutomodeOn, signal, sessionContextProvider);
+        return await checkBashPermission(input, merged, cwd, isAutomodeOn, signal, sessionContextProvider, sessionEntriesProvider);
     }
 
     // MCP tools are addressed with the format `mcp__<server>__<tool>` (the same
@@ -361,6 +365,7 @@ async function checkBashPermission(
     isAutomodeOn?: () => boolean,
     signal?: AbortSignal,
     sessionContextProvider?: SessionContextProvider,
+    sessionEntriesProvider?: SessionEntriesProvider,
 ): Promise<PermissionDecision> {
     const cmd = input.command;
     if (typeof cmd !== "string") return { decision: "ask" };
@@ -479,7 +484,7 @@ async function checkBashPermission(
             reason: shouldAllow.reason,
         }).catch(() => {});
         if (isAutomodeOn?.()) {
-            return await classifyBashCommand(cmd, signal, await getSessionCtx());
+            return await classifyBashCommand(cmd, signal, await getSessionCtx(), sessionEntriesProvider?.(), merged);
         }
         else {
             return { decision: "ask", reason: shouldAllow.reason };

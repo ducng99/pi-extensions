@@ -1,32 +1,23 @@
-import { ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 
-import type { PermissionDecision } from "./permission-check";
-import type { ClassifierSessionContext } from "./session-context";
+import type { PermissionDecision } from "../permission-check";
+import type { ClassifierSessionContext } from "../session-context";
+import { buildRequestHeaders, ClassifierError, normalizeLabel, type ResolvedClassifierConfig, resolveProviderConfig } from "./types";
 
 /**
- * Classifies a bash command as allow / ask / deny by querying the classifier
- * server's `/classify` endpoint through pi's model manager.
+ * Text-classifier backend: classifies a bash command as allow / ask / deny by
+ * querying the classifier server's `/autoshell` endpoint through pi's model
+ * manager.
  *
  * The request body is `{"text": "..."}`; the response is
  * `{"label": "allow" | "ask" | "deny", "score": <confidence>}`.
  */
 
 // ============================================================================
-// Types
-// ============================================================================
-
-/** A fully resolved configuration (provider auth + defaults applied). */
-interface ResolvedClassifierConfig {
-    baseUrl: string;
-    apiKey?: string;
-    headers?: Record<string, string | null>;
-}
-
-// ============================================================================
 // Defaults
 // ============================================================================
 
-const PROVIDER = "autoshell";
+const PROVIDER = "aimachine";
 const TIMEOUT_MS = 10_000;
 // Warmup gets a much longer budget: its whole point is to absorb the model's
 // one-time lazy load (llama.cpp can take minutes for large models), which
@@ -45,27 +36,7 @@ let config: ResolvedClassifierConfig | null = null;
  * (e.g. it was never logged in or the model manager cannot reach it).
  */
 export async function loadClassifier(modelRegistry: ModelRegistry) {
-    let auth;
-    try {
-        auth = await modelRegistry.getProviderAuth(PROVIDER);
-    }
-    catch (err) {
-        throw new ClassifierError(`Failed to resolve auth for provider "${PROVIDER}": ${String(err)}`, { cause: err });
-    }
-
-    const baseUrl = auth?.auth.baseUrl;
-    if (!baseUrl) {
-        throw new ClassifierError(
-            `Provider "${PROVIDER}" has no base URL configured in the model manager. `
-            + `Log in with "/login ${PROVIDER}" or configure it in models.json.`,
-        );
-    }
-
-    config = {
-        baseUrl,
-        apiKey: auth?.auth.apiKey,
-        headers: auth?.auth.headers,
-    };
+    config = await resolveProviderConfig(modelRegistry, PROVIDER);
 
     // Kick off the model load on the server without blocking: see the module
     // doc comment. Errors are swallowed — warmup is best-effort and any real
@@ -117,39 +88,6 @@ function buildText(command: string, sessionContext?: ClassifierSessionContext): 
 // Classifier API Call
 // ============================================================================
 
-/** Error thrown when the classifier endpoint cannot be reached or misbehaves. */
-export class ClassifierError extends Error {
-    override name = "ClassifierError";
-
-    constructor(message: string, options?: { cause?: unknown }) {
-        super(message, options);
-    }
-}
-
-/**
- * Build the request headers from the resolved provider auth: provider
- * headers (minus any `Authorization`, which is set from the API key), then
- * `Authorization: Bearer <apiKey>` when a key is present.
- */
-function buildRequestHeaders(resolved: ResolvedClassifierConfig): Record<string, string> {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    for (const [key, value] of Object.entries(resolved.headers ?? {})) {
-        if (value === null) continue;
-        if (key.toLowerCase() !== "authorization") headers[key] = value;
-    }
-    if (resolved.apiKey) {
-        headers["Authorization"] = `Bearer ${resolved.apiKey}`;
-    }
-    return headers;
-}
-
-/**
- * POST `{"text"}` to the endpoint's `/classify` route and map the returned
- * label / score pair to a {@link PermissionDecision}.
- *
- * Throws {@link ClassifierError} on network failures, HTTP errors, or a
- * malformed response.
- */
 interface RequestOptions {
     /** Caller's abort signal (e.g. session abort); combined with the timeout. */
     signal?: AbortSignal;
@@ -157,10 +95,17 @@ interface RequestOptions {
     timeoutMs?: number;
 }
 
+/**
+ * POST `{"text"}` to the endpoint's `/autoshell` route and map the returned
+ * label / score pair to a {@link PermissionDecision}.
+ *
+ * Throws {@link ClassifierError} on network failures, HTTP errors, or a
+ * malformed response.
+ */
 async function requestScore(text: string, options: RequestOptions = {}): Promise<PermissionDecision> {
     if (!config) throw new ClassifierError("Classifier config not loaded");
 
-    const url = `${config.baseUrl.replace(/\/+$/, "")}/classify`;
+    const url = new URL("/autoshell", config.baseUrl);
 
     const payload = { text };
 
@@ -188,16 +133,12 @@ async function requestScore(text: string, options: RequestOptions = {}): Promise
     }
 
     const json = (await response.json()) as Record<string, unknown>;
-    const label = json["label"];
     const score = json["score"];
-    if (typeof label !== "string" || typeof score !== "number" || !Number.isFinite(score)) {
+    if (typeof score !== "number" || !Number.isFinite(score)) {
         throw new ClassifierError(`Classifier response had unexpected shape: ${JSON.stringify(json)}`);
     }
 
-    const normalized = label.trim().toLowerCase();
-    if (normalized !== "allow" && normalized !== "ask" && normalized !== "deny") {
-        throw new ClassifierError(`Classifier returned unknown label "${label}"`);
-    }
+    const normalized = normalizeLabel(json["label"]);
 
     // Downgrade to ask when the model says allow/deny but isn't confident enough.
     if ((normalized === "allow" || normalized === "deny") && score < CONFIDENCE_THRESHOLD) {
@@ -209,10 +150,10 @@ async function requestScore(text: string, options: RequestOptions = {}): Promise
 
 /**
  * Classify a bash command as allow / ask / deny. The endpoint and key are resolved
- * from the `llama.cpp` provider via the model manager (see the module docs).
+ * from the `aimachine` provider via the model manager (see the module docs).
  *
- * Throws {@link ClassifierError} if auth cannot be resolved or the request
- * fails.
+ * Never throws — request failures degrade to an `ask` decision so the user
+ * gets the final say.
  */
 export async function classifyBashCommand(
     command: string,
