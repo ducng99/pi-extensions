@@ -2,15 +2,35 @@ import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 import type { PermissionDecision } from "../permission-check";
 import type { ClassifierSessionContext } from "../session-context";
-import { buildRequestHeaders, ClassifierError, normalizeLabel, type ResolvedClassifierConfig, resolveProviderConfig } from "./types";
+import { buildRequestHeaders, ClassifierError, type ClassifierLabel, type ResolvedClassifierConfig, resolveProviderConfig } from "./types";
 
 /**
  * Text-classifier backend: classifies a bash command as allow / ask / deny by
  * querying the classifier server's `/autoshell` endpoint through pi's model
  * manager.
  *
- * The request body is `{"text": "..."}`; the response is
- * `{"label": "allow" | "ask" | "deny", "score": <confidence>}`.
+ * Request body:
+ * ```json
+ * {
+ *   "command": "echo \"docker processes\" ; docker ps",
+ *   "shell": "posix",
+ *   "context": { "cwd": "/home/user", "lastUserPrompt": "check the running docker processes" }
+ * }
+ * ```
+ * `context` is the full {@link ClassifierSessionContext} (cwd, gitRemote,
+ * gitStatus, recentToolCalls, agentTouchedFiles, lastUserPrompt). No
+ * assistant message is part of it — the command is the top-level `command`
+ * field, and model-authored prose is never sent, so it cannot steer the
+ * verdict.
+ *
+ * Response body:
+ * ```json
+ * {"model":"qwen35-shell-safety-rlcd","label":"ask","probabilities":{"allow":0.1436,"ask":0.8523,"deny":0.0041},"confidence":0.8523,"risk":0.4302,"input_tokens":42}
+ * ```
+ * The decision is derived from `probabilities` (they are fractions 0-1 that
+ * sum to 1; the `label` / `confidence` fields are informational): the label
+ * with the highest probability wins, and allow/deny only sticks when that
+ * probability is >= {@link CONFIDENCE_THRESHOLD} — otherwise ask.
  */
 
 // ============================================================================
@@ -18,6 +38,7 @@ import { buildRequestHeaders, ClassifierError, normalizeLabel, type ResolvedClas
 // ============================================================================
 
 const PROVIDER = "aimachine";
+const SHELL = "posix";
 const TIMEOUT_MS = 10_000;
 // Warmup gets a much longer budget: its whole point is to absorb the model's
 // one-time lazy load (llama.cpp can take minutes for large models), which
@@ -50,38 +71,31 @@ export async function loadClassifier(modelRegistry: ModelRegistry) {
  * tens of seconds with llama.cpp and blow the probe timeout).
  */
 function warmupModel() {
-    requestScore(buildText("echo warmup"), { timeoutMs: WARMUP_TIMEOUT_MS }).catch(() => {});
+    requestDecision(buildBody("echo warmup"), { timeoutMs: WARMUP_TIMEOUT_MS }).catch(() => {});
 }
 
 // ============================================================================
-// Text Building
+// Request Building
 // ============================================================================
 
-/**
- * Render a {@link ClassifierSessionContext} as the compact `<SessionContext>`
- * block the policy expects. Returns the block with leading/trailing newlines
- * so it slots cleanly into the text, or an empty string when the context is
- * absent (warmup, no-git-repo case).
- */
-function renderSessionContext(ctx: ClassifierSessionContext | undefined): string {
-    if (!ctx) return "";
-    const lines: string[] = [];
-    lines.push(`cwd: ${ctx.cwd}`);
-    if (ctx.gitRemote) lines.push(`gitRemote: ${ctx.gitRemote}`);
-    if (ctx.recentToolCalls?.length) lines.push(`recentToolCalls: ${ctx.recentToolCalls.join(" | ")}`);
-    if (ctx.agentTouchedFiles?.length) lines.push(`agentTouchedFiles: ${ctx.agentTouchedFiles.join(", ")}`);
-    if (ctx.lastUserPrompt) lines.push(`lastUserPrompt: ${ctx.lastUserPrompt}`);
-    if (ctx.gitStatus) lines.push(`gitStatus:\n${ctx.gitStatus}`);
-    if (lines.length === 0) return "";
-    const block = lines.join("\n");
-    return `<SessionContext>\n${block}\n</SessionContext>`;
+/** POST body for the classifier endpoint. */
+interface ClassifierRequestBody {
+    /** The shell command under evaluation. */
+    command: string;
+    /** Shell dialect the command is written in. */
+    shell: typeof SHELL;
+    /** Full session context (omitted for warmup). No assistant message. */
+    context?: ClassifierSessionContext;
 }
 
 /**
- * Build the request text for a bash command.
+ * Build the request body for a bash command: the command itself, the shell
+ * dialect, and the session context as structured JSON (absent during warmup).
  */
-function buildText(command: string, sessionContext?: ClassifierSessionContext): string {
-    return `${renderSessionContext(sessionContext)}\n\n${command}`;
+function buildBody(command: string, sessionContext?: ClassifierSessionContext): ClassifierRequestBody {
+    const body: ClassifierRequestBody = { command, shell: SHELL };
+    if (sessionContext) body.context = sessionContext;
+    return body;
 }
 
 // ============================================================================
@@ -96,18 +110,36 @@ interface RequestOptions {
 }
 
 /**
- * POST `{"text"}` to the endpoint's `/autoshell` route and map the returned
- * label / score pair to a {@link PermissionDecision}.
+ * Label vocabulary, ordered — used to read the `probabilities` map.
+ */
+const LABEL_ORDER: ClassifierLabel[] = ["allow", "ask", "deny"];
+
+/**
+ * Read one label's probability out of the response's `probabilities` map.
+ *
+ * Throws {@link ClassifierError} when the value is missing or not a finite
+ * number (the caller degrades that to `ask`).
+ */
+function readProbability(probs: Record<string, unknown>, key: ClassifierLabel): number {
+    const raw = probs[key];
+    if (typeof raw !== "number" || !Number.isFinite(raw)) {
+        throw new ClassifierError(`Classifier response is missing a numeric "${key}" probability`);
+    }
+    return raw;
+}
+
+/**
+ * POST the command + session context to the endpoint's `/autoshell` route and
+ * map the returned probabilities to a {@link PermissionDecision}: allow/deny
+ * only at >= {@link CONFIDENCE_THRESHOLD} confidence, otherwise ask.
  *
  * Throws {@link ClassifierError} on network failures, HTTP errors, or a
  * malformed response.
  */
-async function requestScore(text: string, options: RequestOptions = {}): Promise<PermissionDecision> {
+async function requestDecision(body: ClassifierRequestBody, options: RequestOptions = {}): Promise<PermissionDecision> {
     if (!config) throw new ClassifierError("Classifier config not loaded");
 
     const url = new URL("/autoshell", config.baseUrl);
-
-    const payload = { text };
 
     // Always enforce the timeout, and also honour the caller's signal
     // (e.g. session abort) — whichever fires first aborts the request.
@@ -119,7 +151,7 @@ async function requestScore(text: string, options: RequestOptions = {}): Promise
         response = await fetch(url, {
             method: "POST",
             headers: buildRequestHeaders(config),
-            body: JSON.stringify(payload),
+            body: JSON.stringify(body),
             signal: combinedSignal,
         });
     }
@@ -133,19 +165,30 @@ async function requestScore(text: string, options: RequestOptions = {}): Promise
     }
 
     const json = (await response.json()) as Record<string, unknown>;
-    const score = json["score"];
-    if (typeof score !== "number" || !Number.isFinite(score)) {
+    const rawProbs = json["probabilities"];
+    if (typeof rawProbs !== "object" || rawProbs === null) {
         throw new ClassifierError(`Classifier response had unexpected shape: ${JSON.stringify(json)}`);
     }
+    const probs = rawProbs as Record<string, unknown>;
 
-    const normalized = normalizeLabel(json["label"]);
-
-    // Downgrade to ask when the model says allow/deny but isn't confident enough.
-    if ((normalized === "allow" || normalized === "deny") && score < CONFIDENCE_THRESHOLD) {
-        return { decision: "ask", reason: `Auto mode: ${normalized} confidence ${score.toFixed(2)} < ${CONFIDENCE_THRESHOLD} threshold` };
+    // The winning label is the most probable one (probabilities sum to 1, so
+    // allow/deny at >= 0.8 is always the argmax — the two readings agree).
+    let label: ClassifierLabel = "allow";
+    let score = -Infinity;
+    for (const key of LABEL_ORDER) {
+        const value = readProbability(probs, key);
+        if (value > score) {
+            score = value;
+            label = key;
+        }
     }
 
-    return { decision: normalized, reason: `Auto mode (label=${normalized}, score=${score.toFixed(2)})` };
+    // Downgrade to ask when the model says allow/deny but isn't confident enough.
+    if ((label === "allow" || label === "deny") && score < CONFIDENCE_THRESHOLD) {
+        return { decision: "ask", reason: `Auto mode: ${label} confidence ${score.toFixed(2)} < ${CONFIDENCE_THRESHOLD} threshold` };
+    }
+
+    return { decision: label, reason: `Auto mode (label=${label}, score=${score.toFixed(2)})` };
 }
 
 /**
@@ -161,7 +204,7 @@ export async function classifyBashCommand(
     sessionContext?: ClassifierSessionContext,
 ): Promise<PermissionDecision> {
     try {
-        return await requestScore(buildText(command, sessionContext), { signal });
+        return await requestDecision(buildBody(command, sessionContext), { signal });
     }
     catch (err) {
         return { decision: "ask", reason: "Classifier request failed\n" + String(err) };

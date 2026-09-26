@@ -4,12 +4,12 @@ import type { PermissionDecision } from "../permission-check";
 import type { ParsedPermissions } from "../permission-parsing";
 import type { ClassifierSessionContext } from "../session-context";
 import { classifyBashCommand as classifyWithLlm, loadClassifier as loadLlm } from "./llm";
-import { classifyBashCommand as classifyWithText, loadClassifier as loadText } from "./text-classifier";
+import { classifyBashCommand as classifyWithText, loadClassifier as loadTextClassifier } from "./text-classifier";
 
 /**
  * Classifier facade: selects the bash-command classification backend.
  *
- * - `"text"`: legacy `/autoshell` text-classifier endpoint
+ * - `"classifier"`: legacy `/autoshell` text-classifier endpoint
  *   (`./text-classifier.ts`).
  * - `"llm"`: chat-completion LLM judge (`./llm.ts`).
  *
@@ -19,15 +19,15 @@ import { classifyBashCommand as classifyWithText, loadClassifier as loadText } f
  * and ignored by the text backend.
  */
 
-type ClassifierBackend = "text" | "llm";
+type ClassifierBackend = "classifier" | "llm";
 
-const CLASSIFIER_BACKEND: ClassifierBackend = "llm";
+const CLASSIFIER_BACKEND: ClassifierBackend = "classifier";
 
 export async function loadClassifier(modelRegistry: ModelRegistry) {
     if (CLASSIFIER_BACKEND === "llm") {
         return loadLlm(modelRegistry);
     }
-    return loadText(modelRegistry);
+    return loadTextClassifier(modelRegistry);
 }
 
 export async function classifyBashCommand(
@@ -42,6 +42,3 @@ export async function classifyBashCommand(
     }
     return classifyWithText(command, signal, sessionContext);
 }
-
-export { type ContextFile, setIntentFiles as setClassifierIntentFiles } from "./llm";
-export { ClassifierError } from "./types";
