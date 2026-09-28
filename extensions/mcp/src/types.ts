@@ -54,4 +54,10 @@ export interface McpServerStatus {
     tools: number;
     instructions?: string;
     error?: string;
+    /**
+     * True when the server needs the interactive browser OAuth flow, which was
+     * skipped because this connect attempt did not allow it (e.g. session
+     * start). The user must re-authenticate manually via `/mcp reconnect`.
+     */
+    authRequired?: boolean;
 }

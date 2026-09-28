@@ -15,7 +15,7 @@ import type { TSchema } from "typebox";
 import { loadServersWithSource } from "./config";
 import { formatToolResult } from "./format";
 import { schemaFromParameters } from "./jsonSchema";
-import { InteractiveOAuthProvider, loopback, makeAuthProvider } from "./oauth";
+import { InteractiveAuthRequiredError, InteractiveOAuthProvider, loopback, makeAuthProvider } from "./oauth";
 import { renderMcpCall } from "./render";
 import type { McpServerConfig, McpServerStatus } from "./types";
 
@@ -48,6 +48,29 @@ function statusOf(config: McpServerConfig, conn?: ConnectedServer, error?: strin
     };
 }
 
+/**
+ * Build a failed-connect status, flagging servers whose failure means "the
+ * interactive browser flow is required but was skipped" so callers can prompt
+ * the user to re-authenticate manually.
+ */
+function failureStatus(config: McpServerConfig, err: unknown): McpServerStatus {
+    const status = statusOf(config, undefined, err instanceof Error ? err.message : String(err));
+    if (err instanceof InteractiveAuthRequiredError) status.authRequired = true;
+    return status;
+}
+
+/** Options shared by the connect entry points. */
+interface ConnectOptions {
+    /** Connect project-declared servers (only when the project is trusted). */
+    projectTrusted?: boolean;
+    /**
+     * Allow the interactive browser OAuth flow. Off by default so background
+     * connects (session start) never open a browser or block on a callback —
+     * explicit `/mcp connect` / `/mcp reconnect` commands pass `true`.
+     */
+    interactiveAuth?: boolean;
+}
+
 interface ConnectedServer {
     config: McpServerConfig;
     client: Client;
@@ -76,14 +99,15 @@ export class Registry {
     /** Last-known status for servers we've attempted (or successfully connected to). */
     private lastStatus = new Map<string, McpServerStatus>();
 
-    async providerFor(config: McpServerConfig): Promise<OAuthClientProvider | undefined> {
+    async providerFor(config: McpServerConfig, opts?: Pick<ConnectOptions, "interactiveAuth">): Promise<OAuthClientProvider | undefined> {
+        const interactive = opts?.interactiveAuth === true;
         if (config.auth === "none") return undefined;
         if (config.auth === "client_credentials" && config.clientId) {
-            return makeAuthProvider(config, 0);
+            return makeAuthProvider(config, 0, { interactive });
         }
-        if (config.token) return makeAuthProvider(config, 0);
+        if (config.token) return makeAuthProvider(config, 0, { interactive });
         const port = await loopback.start();
-        return makeAuthProvider(config, port);
+        return makeAuthProvider(config, port, { interactive });
     }
 
     private buildTransport(
@@ -147,22 +171,22 @@ export class Registry {
         };
     }
 
-    async connectAll(pi: ExtensionAPI, cwd: string, opts?: { projectTrusted?: boolean }): Promise<McpServerStatus[]> {
+    async connectAll(pi: ExtensionAPI, cwd: string, opts?: ConnectOptions): Promise<McpServerStatus[]> {
         const statuses: McpServerStatus[] = [];
         for (const { config, source } of loadServersWithSource(cwd)) {
             // Project-declared servers expose project-local config/tools, so only
             // connect to them when the project is trusted. Global servers are fine.
             if (source === "project" && opts?.projectTrusted !== true) continue;
-            statuses.push(await this.connectOne(pi, config));
+            statuses.push(await this.connectOne(pi, config, { interactiveAuth: opts?.interactiveAuth }));
         }
         return statuses;
     }
 
-    async connectOne(pi: ExtensionAPI, config: McpServerConfig): Promise<McpServerStatus> {
+    async connectOne(pi: ExtensionAPI, config: McpServerConfig, opts?: Pick<ConnectOptions, "interactiveAuth">): Promise<McpServerStatus> {
         if (this.connections.has(config.key)) return statusOf(config, this.connections.get(config.key));
         try {
-            const provider = await this.providerFor(config);
-            const conn = await this.attempt(config, provider, true);
+            const provider = await this.providerFor(config, opts);
+            const conn = await this.attempt(config, provider, opts?.interactiveAuth === true);
             this.connections.set(config.key, conn);
             this.registerTools(pi, conn);
             const status = statusOf(config, conn);
@@ -170,8 +194,7 @@ export class Registry {
             return status;
         }
         catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            const status = statusOf(config, undefined, message);
+            const status = failureStatus(config, err);
             this.lastStatus.set(config.key, status);
             return status;
         }
@@ -232,18 +255,26 @@ export class Registry {
         return conn.client.getPrompt({ name, arguments: args as Record<string, string> });
     }
 
+    /**
+     * Re-authenticate/connect a server. Always interactive: this is only called
+     * from the explicit `/mcp reconnect <key>` command, so the browser OAuth
+     * flow is allowed (and awaited) here.
+     */
     async reauth(pi: ExtensionAPI, config: McpServerConfig): Promise<McpServerStatus> {
         await this.disconnect(config.key);
         try {
-            const provider = await this.providerFor(config);
+            const provider = await this.providerFor(config, { interactiveAuth: true });
             const conn = await this.attempt(config, provider, true);
             this.connections.set(config.key, conn);
             this.registerTools(pi, conn);
-            return statusOf(config, conn);
+            const status = statusOf(config, conn);
+            this.lastStatus.set(config.key, status);
+            return status;
         }
         catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return statusOf(config, undefined, message);
+            const status = failureStatus(config, err);
+            this.lastStatus.set(config.key, status);
+            return status;
         }
     }
 

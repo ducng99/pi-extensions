@@ -17,6 +17,9 @@ Built on the official [`@modelcontextprotocol/sdk`](https://github.com/modelcont
 - **OAuth** (full):
   - Interactive **authorization-code** flow (RFC 8252) — opens your browser to a
     `127.0.0.1` loopback, handles the PKCE exchange, and persists credentials.
+    The browser flow only runs from explicit `/mcp connect` / `/mcp reconnect`
+    commands; background connects never open a browser (see
+    [Session start](#session-start--no-silent-browser-logins)).
   - **client_credentials** grant for machine-to-machine auth.
   - **Static bearer tokens** for simple servers.
 - **Permission-less credential storage**: OAuth client registrations, access
@@ -102,11 +105,28 @@ Auto-connects on session start and registers every discovered tool as
 rules (e.g. an `add` tool from server `test-server` becomes
 `mcp__test-server__add`). Configure a custom prefix per-server with `toolPrefix`.
 
+### Session start — no silent browser logins
+
+The automatic connect on session start runs **without** the interactive OAuth
+flow. Silent things still happen automatically (e.g. refreshing an expired
+access token via its refresh token), but if a server needs a full browser
+login, pi does not open the browser or block waiting for a callback. Instead it
+shows a warning notification telling you which servers need authorization:
+
+```
+Browser login was skipped on startup — re-authorize manually:
+• MCP server "my-server" needs authorization — run "/mcp reconnect my-server" to log in via the browser
+```
+
+Re-authenticate whenever you like with `/mcp reconnect <server>` (or
+`/mcp connect <server>`), which do open the browser. `/mcp` shows the current
+status of every server, including `authRequired` ones.
+
 | Command                  | Effect                                          |
 | ------------------------ | ----------------------------------------------- |
 | `/mcp`                   | Show connection status.                         |
 | `/mcp connect [<server>]` | Connect/disconnect all or one server.           |
-| `/mcp reconnect <server>` | Re-authenticate (triggers OAuth when needed). |
+| `/mcp reconnect <server>` | Re-authenticate (triggers the browser OAuth flow when needed). |
 | `/mcp disconnect <server>`| Tear down a server's connection.                |
 | `/mcp tools <server>`    | List the tools exposed by a server (name + description). |
 | `/mcp config`            | List the resolved server configuration.         |

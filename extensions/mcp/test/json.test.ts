@@ -85,15 +85,15 @@ describe("OAuth provider", () => {
     });
 
     test("persists and clears tokens at an overridable path", async () => {
-        const provider = new InteractiveOAuthProvider("oauth-prime", port, undefined, dir);
+        const provider = new InteractiveOAuthProvider("oauth-prime", port, { storageFile: dir });
         await provider.saveTokens({ access_token: "abc", token_type: "Bearer" });
 
         // Reload from disk proves persistence.
-        const reloaded = new InteractiveOAuthProvider("oauth-prime", port, undefined, dir);
+        const reloaded = new InteractiveOAuthProvider("oauth-prime", port, { storageFile: dir });
         expect((await reloaded.tokens())?.access_token).toBe("abc");
 
         await provider.invalidateCredentials("tokens");
-        const cleared = new InteractiveOAuthProvider("oauth-prime", port, undefined, dir);
+        const cleared = new InteractiveOAuthProvider("oauth-prime", port, { storageFile: dir });
         expect(await cleared.tokens()).toBeUndefined();
     });
 });

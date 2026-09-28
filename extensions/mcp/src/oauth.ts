@@ -3,7 +3,9 @@
  *
  * - Interactive authorization-code flow (RFC 8252) using a 127.0.0.1 loopback
  *   callback, with client registrations/tokens/PKCE persisted per server under
- *   `~/.pi/agent/mcp/auth/`.
+ *   `~/.pi/agent/mcp/auth/`. Opening the browser is opt-in per attempt:
+ *   non-interactive attempts (e.g. the automatic connect on session start)
+ *   throw `InteractiveAuthRequiredError` instead of redirecting.
  * - `client_credentials` grant via the SDK's `ClientCredentialsProvider`.
  * - Static bearer tokens for simple servers that accept them directly.
  */
@@ -149,20 +151,49 @@ function saveStored(file: string, data: StoredCredential): void {
 /* Interactive authorization-code provider                             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Thrown by a non-interactive {@link InteractiveOAuthProvider} at the exact
+ * point where the browser would have been opened. Signals that the server
+ * needs a fresh browser authorization, which only an explicit user command
+ * (e.g. `/mcp reconnect <key>`) may start — background connects must never
+ * block on or silently trigger OAuth.
+ */
+export class InteractiveAuthRequiredError extends Error {
+    constructor(public readonly serverKey: string) {
+        super(`MCP server "${serverKey}" needs authorization — run "/mcp reconnect ${serverKey}" to log in via the browser`);
+        this.name = "InteractiveAuthRequiredError";
+    }
+}
+
+/** Options for {@link InteractiveOAuthProvider}. */
+export interface InteractiveProviderOptions {
+    scope?: string;
+    storageFile?: string;
+    /**
+     * Whether the browser authorization flow may be triggered. Defaults to
+     * `false`: without it, `redirectToAuthorization` throws
+     * {@link InteractiveAuthRequiredError} instead of opening a browser.
+     */
+    interactive?: boolean;
+}
+
 export class InteractiveOAuthProvider implements OAuthClientProvider {
     private store: StoredCredential;
+    private file: string;
+    private scope?: string;
+    /** Whether this provider may open the browser for the authorization flow. */
+    readonly interactive: boolean;
 
     constructor(
         private serverKey: string,
         private clientPort: string,
-        private scope?: string,
-        private storageFile?: string,
+        opts: InteractiveProviderOptions = {},
     ) {
-        this.file = storageFile ?? storagePath(serverKey);
+        this.file = opts.storageFile ?? storagePath(serverKey);
+        this.scope = opts.scope;
         this.store = readStored(this.file);
+        this.interactive = opts.interactive ?? false;
     }
-
-    private file: string;
 
     get clientMetadata(): OAuthClientMetadata {
         const metadata: OAuthClientMetadata = {
@@ -203,6 +234,9 @@ export class InteractiveOAuthProvider implements OAuthClientProvider {
     }
 
     redirectToAuthorization(authorizationUrl: URL): void {
+        // Refuse instead of opening the browser when this attempt is not
+        // allowed to run the interactive flow (e.g. the session-start connect).
+        if (!this.interactive) throw new InteractiveAuthRequiredError(this.serverKey);
         openUrl(authorizationUrl.href);
     }
 
@@ -277,8 +311,18 @@ export class StaticTokenProvider implements OAuthClientProvider {
 /* Factory                                                             */
 /* ------------------------------------------------------------------ */
 
+/** Options for {@link makeAuthProvider}. */
+export interface AuthProviderOptions {
+    /**
+     * Allow the interactive browser OAuth flow. Defaults to `false` so that
+     * background connects (session start) never open a browser; explicit
+     * user commands (`/mcp connect`, `/mcp reconnect`) pass `true`.
+     */
+    interactive?: boolean;
+}
+
 /** Build the appropriate auth provider for a server config. */
-export function makeAuthProvider(config: McpServerConfig, port: number): OAuthClientProvider | undefined {
+export function makeAuthProvider(config: McpServerConfig, port: number, opts: AuthProviderOptions = {}): OAuthClientProvider | undefined {
     if (config.auth === "none") return undefined;
     if (config.auth === "client_credentials" && config.clientId) {
         return new ClientCredentialsProvider({
@@ -287,5 +331,5 @@ export function makeAuthProvider(config: McpServerConfig, port: number): OAuthCl
         });
     }
     if (config.token) return new StaticTokenProvider(config.token);
-    return new InteractiveOAuthProvider(config.key, String(port));
+    return new InteractiveOAuthProvider(config.key, String(port), { interactive: opts.interactive });
 }

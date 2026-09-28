@@ -11,6 +11,7 @@ import type { McpServerStatus } from "./types";
 
 function formatStatus(status: McpServerStatus): string {
     if (status.connected) return `● ${status.server.key} (${status.server.type}) — connected · ${status.tools} tool(s)`;
+    if (status.authRequired) return `○ ${status.server.key} (${status.server.type}) — ${status.error ?? "authorization required"}`;
     if (status.error === "not connected") return `○ ${status.server.key} (${status.server.type}) — not connected`;
     return `○ ${status.server.key} (${status.server.type}) — failed: ${status.error ?? "unknown error"}`;
 }
@@ -83,16 +84,18 @@ export function registerCommands(pi: ExtensionAPI, registry: Registry): void {
 
             switch (command) {
                 case "connect": {
+                    // Explicit user command: the interactive browser OAuth flow
+                    // is allowed here (unlike the session-start connect).
                     if (key) {
                         const cfg = servers.find(s => s.key === key);
                         if (!cfg) {
                             ctx.ui.notify(`No server named "${key}".`, "error");
                             break;
                         }
-                        await registry.connectOne(pi, cfg);
+                        await registry.connectOne(pi, cfg, { interactiveAuth: true });
                     }
                     else {
-                        await registry.connectAll(pi, ctx.cwd);
+                        await registry.connectAll(pi, ctx.cwd, { projectTrusted: ctx.isProjectTrusted(), interactiveAuth: true });
                     }
                     ctx.ui.notify(statusTable(registry, ctx.cwd), "info");
                     break;

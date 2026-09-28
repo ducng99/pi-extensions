@@ -13,6 +13,12 @@
  *   /mcp disconnect <key>   — disconnect a server
  *   /mcp tools <key>        — list the tools a server exposes
  *
+ * On session start servers are connected in the background WITHOUT running
+ * the interactive browser OAuth flow: if a server's authorization has expired,
+ * pi notifies the user and they re-authenticate manually with
+ * `/mcp reconnect <key>`. Only explicit `/mcp connect` / `/mcp reconnect`
+ * commands may open the browser.
+ *
  * See extensions/mcp/README.md for the config format.
  */
 
@@ -30,7 +36,13 @@ export default function mcpExtension(pi: ExtensionAPI): void {
     registerHelperTools(pi, registry);
 
     pi.on("resources_discover", async (_event, ctx) => {
-        const statuses = await registry.connectAll(pi, ctx.cwd, { projectTrusted: ctx.isProjectTrusted() });
+        // Session start must never open a browser or block on an OAuth
+        // callback: expired authorizations are surfaced as a notification and
+        // re-authenticated manually via `/mcp reconnect <key>`.
+        const statuses = await registry.connectAll(pi, ctx.cwd, {
+            projectTrusted: ctx.isProjectTrusted(),
+            interactiveAuth: false,
+        });
 
         pi.events.emit("mcp_status", statuses.map(s => ({
             connected: s.connected,
@@ -39,6 +51,12 @@ export default function mcpExtension(pi: ExtensionAPI): void {
         })));
 
         if (ctx.hasUI) {
+            const needAuth = statuses.filter(s => s.authRequired);
+            if (needAuth.length) {
+                const lines = needAuth.map(s => `• ${s.error ?? `MCP server "${s.server.key}" needs authorization`}`);
+                ctx.ui.notify(`Browser login was skipped on startup — re-authorize manually:\n${lines.join("\n")}`, "warning");
+            }
+
             const { missingEnv } = loadServersWithMissing(ctx.cwd);
             const missing = Object.entries(missingEnv)
                 .map(([server, vars]) => `${server}: ${vars.join(", ")}`)
