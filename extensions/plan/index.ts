@@ -1,8 +1,9 @@
 /**
  * Plan Extension
  *
- * `/plan` toggles a read-only "plan mode". In plan mode the active tool set is
- * restricted to read-only exploration tools plus the `write_plan` / `edit_plan`
+ * `/plan` toggles a read-only "plan mode". `/plan <prompt>` enables plan mode
+ * (if it is not already on) and then sends the prompt as a user message.
+ * In plan mode the active tool set is restricted to read-only exploration tools plus the `write_plan` / `edit_plan`
  * tools, and tool-permissions is told (via the shared `pi.events` bus) to gate
  * every intercepted tool against the plan-mode permission set.
  *
@@ -130,11 +131,9 @@ export default function planExtension(pi: ExtensionAPI) {
         }
     }
 
-    function togglePlanMode(ctx: ExtensionContext): void {
-        if (planModeActive) {
-            deactivatePlanMode(ctx);
-            return;
-        }
+    /** Turn plan mode on. No-op if it is already active. */
+    function activatePlanMode(ctx: ExtensionContext): void {
+        if (planModeActive) return;
 
         toolsBeforePlanMode = pi.getActiveTools();
         pi.setActiveTools([...PLAN_TOOL_NAMES]);
@@ -158,6 +157,30 @@ export default function planExtension(pi: ExtensionAPI) {
         }, {
             deliverAs: "nextTurn",
         });
+    }
+
+    function togglePlanMode(ctx: ExtensionContext): void {
+        if (planModeActive) {
+            deactivatePlanMode(ctx);
+            return;
+        }
+        activatePlanMode(ctx);
+    }
+
+    /**
+     * Send the user's prompt (from `/plan <prompt>`) to the agent. If plan mode
+     * was just switched on by the same command, its guide message is queued as a
+     * `nextTurn` message and injected alongside this user message.
+     */
+    function sendPrompt(ctx: ExtensionContext, prompt: string): void {
+        // Commands execute even while the agent is streaming; in that case the
+        // message must be queued as a follow-up instead of starting a turn.
+        if (ctx.isIdle()) {
+            pi.sendUserMessage(prompt);
+        }
+        else {
+            pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+        }
     }
 
     // Restore persisted plan-mode state on startup/reload/resume. A brand-new
@@ -221,8 +244,21 @@ export default function planExtension(pi: ExtensionAPI) {
     });
 
     pi.registerCommand("plan", {
-        description: "Toggle plan mode (read-only exploration + write_plan/edit_plan)",
-        handler: async (_, ctx) => togglePlanMode(ctx),
+        description: "Toggle plan mode (read-only exploration + write_plan/edit_plan). With a prompt, enables plan mode (if needed) and sends the prompt",
+        handler: async (args, ctx) => {
+            const prompt = args.trim();
+            if (!prompt) {
+                togglePlanMode(ctx);
+                return;
+            }
+
+            // `/plan <prompt>`: never toggles the mode off — enable it if needed,
+            // then hand the prompt to the agent.
+            if (!planModeActive) {
+                activatePlanMode(ctx);
+            }
+            sendPrompt(ctx, prompt);
+        },
     });
 
     pi.registerTool({

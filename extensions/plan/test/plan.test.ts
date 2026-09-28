@@ -47,6 +47,9 @@ function setupHarness() {
     // Session entries persisted via pi.appendEntry, mirroring the session JSONL.
     const entries: PersistedEntry[] = [];
 
+    // User messages dispatched via pi.sendUserMessage, for assertions.
+    const userMessages: { text: string; deliverAs?: string }[] = [];
+
     const fakePi = {
         registerTool: (t: ToolDef) => tools.set(t.name, t),
         registerCommand: (name: string, opts: { handler: (args: string, ctx: unknown) => void | Promise<void> }) =>
@@ -68,16 +71,19 @@ function setupHarness() {
             entries.push({ type: "custom", customType, data });
         },
         sendMessage: () => {},
-        sendUserMessage: () => {},
+        sendUserMessage: (text: string, options?: { deliverAs?: string }) => {
+            userMessages.push({ text, deliverAs: options?.deliverAs });
+        },
     };
 
     planExtension(fakePi as never);
 
     const uiCalls = { prompts: 0 };
-    const ctx = (cwd: string) => ({
+    const ctx = (cwd: string, isIdle = true) => ({
         cwd,
         hasUI: true,
         mode: "tui",
+        isIdle: () => isIdle,
         abort: () => {},
         sessionManager: { getEntries: () => [...entries] },
         ui: {
@@ -100,6 +106,8 @@ function setupHarness() {
 
     return {
         togglePlan: (cwd: string) => commands.get("plan")!.handler("", ctx(cwd)),
+        runPlanCommand: (args: string, cwd: string, isIdle = true) => commands.get("plan")!.handler(args, ctx(cwd, isIdle)),
+        userMessages: () => userMessages.map(m => ({ ...m })),
         getActiveTools: () => activeTools,
         setActiveTools: (names: string[]) => {
             activeTools = [...names];
@@ -203,6 +211,49 @@ describe("plan extension tools", () => {
         // Toggling off also records the new state in the session.
         const last = reloaded.getEntries()[reloaded.getEntries().length - 1];
         expect(last).toEqual({ type: "custom", customType: "plan:mode", data: { active: false, includedGuide: false } });
+    });
+
+    test("/plan <prompt> enables plan mode and sends the prompt", async () => {
+        const h = setupHarness();
+        dir = await mkdtemp(join(tmpdir(), "plan-test-"));
+        const before = h.getActiveTools();
+
+        await h.runPlanCommand("  this is a prompt  ", dir);
+        // Plan mode was switched on (not off) and the trimmed prompt was sent.
+        expect(h.getActiveTools()).not.toEqual(before);
+        expect(h.getEntries()[0]).toEqual({
+            type: "custom",
+            customType: "plan:mode",
+            data: { active: true, toolsBefore: before, includedGuide: true },
+        });
+        expect(h.userMessages()).toEqual([{ text: "this is a prompt" }]);
+
+        // With plan mode already active, a prompt never toggles it off.
+        await h.runPlanCommand("and another prompt", dir);
+        expect(h.getActiveTools()).not.toEqual(before);
+        expect(h.userMessages()).toHaveLength(2);
+        expect(h.userMessages()[1]?.text).toBe("and another prompt");
+    });
+
+    test("/plan <prompt> while streaming queues the prompt as a follow-up", async () => {
+        const h = setupHarness();
+        dir = await mkdtemp(join(tmpdir(), "plan-test-"));
+        const before = h.getActiveTools();
+
+        await h.runPlanCommand("streaming prompt", dir, false);
+        expect(h.getActiveTools()).not.toEqual(before);
+        expect(h.userMessages()).toEqual([{ text: "streaming prompt", deliverAs: "followUp" }]);
+    });
+
+    test("/plan without a prompt toggles the mode and sends no user message", async () => {
+        const h = setupHarness();
+        dir = await mkdtemp(join(tmpdir(), "plan-test-"));
+
+        await h.togglePlan(dir);
+        expect(h.userMessages()).toEqual([]);
+        // Toggling off also sends no user message (only the hidden system note).
+        await h.togglePlan(dir);
+        expect(h.userMessages()).toEqual([]);
     });
 
     test("brand-new session without a plan:mode entry starts with plan mode off", async () => {
