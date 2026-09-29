@@ -1,14 +1,12 @@
-import { DefaultResourceLoader, type Extension, type ExtensionContext, getAgentDir, type ReadonlyFooterDataProvider, type Skill, type SourceInfo, type Theme, VERSION } from "@earendil-works/pi-coding-agent";
+import { DefaultResourceLoader, type Extension, type ExtensionContext, getAgentDir, type ReadonlyFooterDataProvider, type RegisteredMcpServer, type Skill, type SourceInfo, type Theme, VERSION } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { relative } from "path";
-
-import type { McpServersStatus } from "../shared/utils/types";
 
 export function createHeader(
     ctx: ExtensionContext,
     theme: Theme,
     getFooterData: () => ReadonlyFooterDataProvider | null,
-    getMcpData: () => McpServersStatus[],
+    getMcpData: () => RegisteredMcpServer[],
 ): Component {
     let skills: Skill[] = [];
     let extensions: Extension[] = [];
@@ -27,7 +25,7 @@ export function createHeader(
 
     return {
         render(width: number): string[] {
-            const mcpServersStatus = getMcpData();
+            const mcpServers = getMcpData();
 
             const lines = [
                 "",
@@ -38,7 +36,7 @@ export function createHeader(
             if (ctx.ui.getToolsExpanded()) {
                 const skillsLines = wrapTextWithAnsi(skills.map(s => s.name).join(", "), width - 11 - 8);
                 const extensionsLines = wrapTextWithAnsi(extensions.filter(e => !e.hidden).map(compactExtensionLabel).join(", "), width - 11 - 12);
-                const mcpServersLines = wrapTextWithAnsi(mcpServersStatus.map(m => `${m.name} (${m.type})`).join(", "), width - 11 - 5);
+                const mcpServersLines = wrapTextWithAnsi(mcpServers.map(m => `${m.name} (${m.config.type ?? "stdio"})`).join(", "), width - 11 - 5);
 
                 lines.push(theme.fg("dim", "Skills: " + (skillsLines[0] || "none")));
                 lines.push(...skillsLines.slice(1).map(line => theme.fg("dim", line)));
@@ -48,8 +46,7 @@ export function createHeader(
                 lines.push(...mcpServersLines.slice(1).map(line => theme.fg("dim", line)));
             }
             else {
-                const mcpConnected = mcpServersStatus.filter(m => m.connected).length;
-                lines.push(theme.fg("dim", `Skills: ${skills.length} · Extensions: ${extensions.length} · MCP: ${mcpConnected}/${mcpServersStatus.length}`));
+                lines.push(theme.fg("dim", `Skills: ${skills.length} · Extensions: ${extensions.length} · MCP: ${mcpServers.length}`));
             }
 
             for (let i = 0; i < Math.max(6, lines.length); i++) {

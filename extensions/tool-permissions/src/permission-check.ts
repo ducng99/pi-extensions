@@ -591,12 +591,34 @@ function extractPathValue(token: string): string | null {
 }
 
 /**
- * Commands whose first positional argument is a regex pattern (grep, rg) or a
- * sed script rather than a file path. Patterns can legitimately start with `/`
- * (e.g. `grep '/etc/passwd' file`), which would otherwise be mistaken for an
+ * Commands whose first positional argument is a regex pattern (grep, rg), a
+ * sed script, or an awk program rather than a file path. Patterns can
+ * legitimately start with `/` (e.g. `grep '/etc/passwd' file`,
+ * `awk '/etc/hosts/ {print}' file`), which would otherwise be mistaken for an
  * absolute path by the out-of-bounds check.
  */
-const PATTERN_POSITION_COMMANDS = new Set(["grep", "egrep", "fgrep", "rg", "sed"]);
+const PATTERN_POSITION_COMMANDS = new Set(["grep", "egrep", "fgrep", "rg", "sed", "awk", "gawk", "mawk", "nawk"]);
+
+/**
+ * awk and its common variants — all share the same option/argument layout
+ * (first positional is the program, `-f`/`-e` supply it, `-F`/`-v` take
+ * non-path values).
+ */
+const AWK_COMMANDS = new Set(["awk", "gawk", "mawk", "nawk"]);
+
+/**
+ * awk options whose value is neither a pattern nor a path: `-F FS` (field
+ * separator) and `-v VAR=VALUE` (variable assignment). The value must be
+ * skipped without consuming the pattern slot, so the program that follows is
+ * still recognized as the program/pattern positional.
+ */
+const AWK_VALUE_OPTIONS = new Set(["F", "v"]);
+
+/**
+ * Long forms of awk's value options (`--field-separator=`, `--assignments=`),
+ * accepted with `=` or as a separate value.
+ */
+const AWK_VALUE_LONG_OPTIONS = new Set(["--field-separator", "--assignments"]);
 
 /**
  * Long options that take a regex pattern/script as their value, per command.
@@ -631,11 +653,12 @@ const NO_PATTERN_OPTIONS: Record<string, Set<string>> = {
 type PatternOptionKind
     = | { kind: "pattern"; value: string; separate: boolean }
         | { kind: "pattern-file"; value: string; separate: boolean }
+        | { kind: "value-option"; separate: boolean }
         | { kind: "plain-option" }
         | { kind: "not-option" };
 
 /**
- * Classify a single argument token of a pattern-based command (grep/rg/sed).
+ * Classify a single argument token of a pattern-based command (grep/rg/sed/awk).
  *
  * `separate: true` means the value is the *next* argument (e.g. `-e PATTERN`),
  * `separate: false` means the value is attached to this token (e.g.
@@ -657,6 +680,9 @@ function classifyPatternOption(command: string, token: string): PatternOptionKin
         if (PATTERN_FILE_LONG_OPTIONS.has(name)) {
             return { kind: "pattern-file", value, separate: eq === -1 };
         }
+        if (AWK_COMMANDS.has(command) && AWK_VALUE_LONG_OPTIONS.has(name)) {
+            return { kind: "value-option", separate: eq === -1 };
+        }
         return { kind: "plain-option" };
     }
 
@@ -664,6 +690,12 @@ function classifyPatternOption(command: string, token: string): PatternOptionKin
     if (token.startsWith("-") && token.length > 1) {
         for (let j = 1; j < token.length; j++) {
             const c = token[j]!;
+            // awk `-F:`/`-F :`, `-vx=1`/`-v x=1`: the value is a field
+            // separator or an assignment, never a path.
+            if (AWK_COMMANDS.has(command) && AWK_VALUE_OPTIONS.has(c)) {
+                const attached = token.slice(j + 1);
+                return { kind: "value-option", separate: attached === "" };
+            }
             if (c === "e") {
                 const attached = token.slice(j + 1);
                 return { kind: "pattern", value: attached, separate: attached === "" };
@@ -688,8 +720,9 @@ function classifyPatternOption(command: string, token: string): PatternOptionKin
 
 /**
  * Extract file-path arguments from a single command's args, skipping regex
- * patterns and sed scripts for pattern-based commands (grep/rg/sed) so that a
- * pattern such as `/etc/passwd` is not mistaken for an absolute path.
+ * patterns, sed scripts, and awk programs for pattern-based commands
+ * (grep/rg/sed/awk) so that a pattern such as `/etc/passwd` is not mistaken
+ * for an absolute path.
  */
 function extractPathArgs(args: string[]): string[] {
     if (args.length === 0) return [];
@@ -742,6 +775,16 @@ function extractPathArgs(args: string[]): string[] {
                     if (value !== undefined) {
                         const path = extractPathValue(value);
                         if (path) paths.push(path);
+                    }
+                    continue;
+                }
+
+                if (opt.kind === "value-option") {
+                    // Non-path value (awk `-F`/`-v`): skip the separate value
+                    // token without filling the pattern slot, so the program
+                    // positional is still consumed as the pattern.
+                    if (opt.separate && args[i + 1] !== undefined) {
+                        i++;
                     }
                     continue;
                 }

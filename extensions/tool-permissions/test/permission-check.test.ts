@@ -447,7 +447,7 @@ describe("checkPermission: bash out-of-bounds paths", () => {
     });
 });
 
-describe("checkPermission: regex patterns that look like paths (grep/rg/sed)", () => {
+describe("checkPermission: regex patterns that look like paths (grep/rg/sed/awk)", () => {
     const cwd = "/home/user/project";
 
     test("grep pattern starting with / is not treated as a path", async () => {
@@ -525,6 +525,54 @@ describe("checkPermission: regex patterns that look like paths (grep/rg/sed)", (
     test("rg --files has no pattern slot: positionals are paths", async () => {
         const perms = makePerms({ allow: [{ category: "bash", pattern: "rg *" }] });
         const result = await checkPermission("bash", { command: "rg --files /etc/passwd" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+    });
+
+    test("awk program starting with / is not treated as a path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "awk *" }] });
+        const result = await checkPermission("bash", { command: "awk '/etc/passwd/ {print $1}' src/main.ts" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("gawk program starting with / is not treated as a path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "gawk *" }] });
+        const result = await checkPermission("bash", { command: "gawk '/etc/hosts/ {print}' src/main.ts" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("awk -e program starting with / is not treated as a path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "awk *" }] });
+        const result = await checkPermission("bash", { command: "awk -e '/etc/hosts/ {print}' src/main.ts" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("awk -F separate value is skipped, not treated as the pattern", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "awk *" }] });
+        const result = await checkPermission("bash", { command: "awk -F : '/etc/hosts/ {print}' src/main.ts" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("awk -v value is skipped, not treated as the pattern", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "awk *" }] });
+        const result = await checkPermission("bash", { command: "awk -v RS=/etc/passwd '/x/{print}' src/main.ts" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("awk real file arguments are still bounds-checked", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "awk *" }] });
+        const result = await checkPermission("bash", { command: "awk '{print}' /etc/passwd" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+    });
+
+    test("awk -F: attached value: file args are still bounds-checked", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "awk *" }] });
+        const result = await checkPermission("bash", { command: "awk -F: '{print $1}' /etc/passwd" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+    });
+
+    test("awk program file (-f) is still bounds-checked", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "awk *" }] });
+        const result = await checkPermission("bash", { command: "awk -f /etc/script.awk src/main.ts" }, perms, cwd);
         expect(result.decision).toBe("ask");
     });
 
