@@ -63,7 +63,7 @@ export default function planExtension(pi: ExtensionAPI) {
             content: "Plan mode disabled. You can now make edits, run tools and take actions.",
             display: false,
         }, {
-            deliverAs: "nextTurn",
+            triggerTurn: false,
         });
     }
 
@@ -155,7 +155,7 @@ export default function planExtension(pi: ExtensionAPI) {
             content: "Plan mode enabled. Only read-only tools and plan writing are allowed.\n\n" + (includeGuide ? PLAN_GUIDE_PROMPT.trim() : "Follow the plan workflow you already have."),
             display: false,
         }, {
-            deliverAs: "nextTurn",
+            triggerTurn: false,
         });
     }
 
@@ -165,22 +165,6 @@ export default function planExtension(pi: ExtensionAPI) {
             return;
         }
         activatePlanMode(ctx);
-    }
-
-    /**
-     * Send the user's prompt (from `/plan <prompt>`) to the agent. If plan mode
-     * was just switched on by the same command, its guide message is queued as a
-     * `nextTurn` message and injected alongside this user message.
-     */
-    function sendPrompt(ctx: ExtensionContext, prompt: string): void {
-        // Commands execute even while the agent is streaming; in that case the
-        // message must be queued as a follow-up instead of starting a turn.
-        if (ctx.isIdle()) {
-            pi.sendUserMessage(prompt);
-        }
-        else {
-            pi.sendUserMessage(prompt, { deliverAs: "followUp" });
-        }
     }
 
     // Restore persisted plan-mode state on startup/reload/resume. A brand-new
@@ -232,7 +216,7 @@ export default function planExtension(pi: ExtensionAPI) {
 
         if (choice?.startsWith("Implement now")) {
             deactivatePlanMode(ctx);
-            pi.sendUserMessage("Implement the plan now.");
+            pi.sendUserMessage("Implement the plan now.", { deliverAs: "followUp" });
         }
         else if (choice?.startsWith("Clear & implement")) {
             ctx.ui.notify("Clear & implement: not yet implemented.", "warning");
@@ -257,7 +241,13 @@ export default function planExtension(pi: ExtensionAPI) {
             if (!planModeActive) {
                 activatePlanMode(ctx);
             }
-            sendPrompt(ctx, prompt);
+
+            if (ctx.isIdle()) {
+                pi.sendUserMessage(prompt);
+            }
+            else {
+                pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+            }
         },
     });
 
