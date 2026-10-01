@@ -25,7 +25,7 @@ import { buildRequestHeaders, ClassifierError, type ClassifierLabel, type Resolv
  *
  * Response body:
  * ```json
- * {"model":"qwen35-shell-safety-rlcd","label":"ask","probabilities":{"allow":0.1436,"ask":0.8523,"deny":0.0041},"confidence":0.8523,"risk":0.4302,"input_tokens":42}
+ * {"label":"ask","probabilities":{"allow":0.1436,"ask":0.8523,"deny":0.0041},"confidence":0.8523,"risk":0.4302,"input_tokens":42}
  * ```
  * The decision is derived from `probabilities` (they are fractions 0-1 that
  * sum to 1; the `label` / `confidence` fields are informational): the label

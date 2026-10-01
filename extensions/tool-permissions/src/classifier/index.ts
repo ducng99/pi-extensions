@@ -3,8 +3,8 @@ import type { ModelRegistry, SessionEntry } from "@earendil-works/pi-coding-agen
 import type { PermissionDecision } from "../permission-check";
 import type { ParsedPermissions } from "../permission-parsing";
 import type { ClassifierSessionContext } from "../session-context";
+import { classifyBashCommand as classifyWithText, loadClassifier as loadTextClassifier } from "./classifier";
 import { classifyBashCommand as classifyWithLlm, loadClassifier as loadLlm } from "./llm";
-import { classifyBashCommand as classifyWithText, loadClassifier as loadTextClassifier } from "./text-classifier";
 
 /**
  * Classifier facade: selects the bash-command classification backend.
@@ -19,7 +19,7 @@ import { classifyBashCommand as classifyWithText, loadClassifier as loadTextClas
  * and ignored by the text backend.
  */
 
-type ClassifierBackend = "classifier" | "llm";
+type ClassifierBackend = "llm" | "classifier" | "classifier-v2";
 
 const CLASSIFIER_BACKEND: ClassifierBackend = "classifier";
 
