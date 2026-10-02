@@ -123,6 +123,9 @@ export default function (pi: ExtensionAPI) {
         );
 
         if (decision.decision === "deny") {
+            if (decision.notify) {
+                ctx.ui.notify(decision.notify, "info");
+            }
             return {
                 block: true,
                 reason: decision.reason ?? `${toolName} is denied by your permission settings.`,
@@ -213,8 +216,8 @@ export default function (pi: ExtensionAPI) {
             };
         }
 
-        if (decision.decision === "allow" && decision.reason) {
-            ctx.ui.notify(decision.reason, "info");
+        if (decision.decision === "allow" && (decision.notify ?? decision.reason)) {
+            ctx.ui.notify(decision.notify ?? decision.reason!, "info");
         }
 
         // "allow" — proceed with execution

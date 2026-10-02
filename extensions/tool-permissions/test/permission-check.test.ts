@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { initParser } from "../../shared/bash-parser/index";
 import type { PermissionDecision } from "../src/permission-check";
-import { checkPermission, isOutOfBounds, REASON_BASH_COMPLEX, REASON_BASH_PARSE_ERROR } from "../src/permission-check";
+import { checkPermission, isOutOfBounds, REASON_AUTO_MODE_DENIED, REASON_BASH_COMPLEX, REASON_BASH_PARSE_ERROR } from "../src/permission-check";
 import type { ParsedPermissions } from "../src/permission-parsing";
 import { parseClaudePerms } from "../src/permission-parsing";
 
@@ -1009,9 +1009,10 @@ describe("checkPermission: automode classifier integration", () => {
         expect(classifyMock).toHaveBeenCalledTimes(1);
     });
 
-    test("automode on: classifier deny is returned", async () => {
+    test("automode on: classifier deny uses a fixed reason and notifies the classifier reason", async () => {
+        const classifierReason = "Auto mode (label=deny, score=0.95)";
         classifyMock.mockImplementation(
-            async (): Promise<PermissionDecision> => ({ decision: "deny" }),
+            async (): Promise<PermissionDecision> => ({ decision: "deny", reason: classifierReason }),
         );
         const perms = makePerms({});
         const result = await checkPermission(
@@ -1022,6 +1023,8 @@ describe("checkPermission: automode classifier integration", () => {
             () => true,
         );
         expect(result.decision).toBe("deny");
+        expect(result.reason).toBe(REASON_AUTO_MODE_DENIED);
+        expect(result.notify).toBe(classifierReason);
     });
 
     test("automode off: classifier is never consulted", async () => {

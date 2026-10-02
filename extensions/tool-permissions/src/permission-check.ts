@@ -199,12 +199,14 @@ export function isOutOfBounds(
  * `reason` may explain *why* it is being asked (e.g. the bash command was too
  * complex to analyze or failed to parse).
  */
-export type PermissionDecision = { decision: "allow" | "ask" | "deny"; reason?: string };
+export type PermissionDecision = { decision: "allow" | "ask" | "deny"; reason?: string; notify?: string };
 
 /** Reason shown when a bash command could not be parsed by tree-sitter. */
 export const REASON_BASH_PARSE_ERROR = "Unable to parse the command";
 /** Reason shown when a bash command uses complex structures we don't analyze. */
 export const REASON_BASH_COMPLEX = "Command uses complex structures";
+/** Reason shown when the auto mode classifier denies a tool call. */
+export const REASON_AUTO_MODE_DENIED = "Tool call is denied by auto mode classifier";
 
 /**
  * Builds the compact {@link ClassifierSessionContext} fed to the bash
@@ -484,7 +486,14 @@ async function checkBashPermission(
             reason: shouldAllow.reason,
         }).catch(() => {});
         if (isAutomodeOn?.()) {
-            return await classifyBashCommand(cmd, signal, await getSessionCtx(), sessionEntriesProvider?.(), merged);
+            const classified = await classifyBashCommand(cmd, signal, await getSessionCtx(), sessionEntriesProvider?.(), merged);
+            // A deny verdict blocks the call with a fixed, user-facing reason;
+            // the classifier's own reason (with its score) is surfaced as a
+            // notification instead of the block message.
+            if (classified.decision === "deny") {
+                return { decision: "deny", reason: REASON_AUTO_MODE_DENIED, notify: classified.reason };
+            }
+            return classified;
         }
         else {
             return { decision: "ask", reason: shouldAllow.reason };
