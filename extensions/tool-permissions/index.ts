@@ -31,6 +31,7 @@ import { collectAllSettings, mergePermissions, setPlanModePermissions } from "./
 
 let parserInitialized = false;
 let initPromise: Promise<void> | null = null;
+let automodeEnabled = true;
 
 async function ensureParserInitialized(): Promise<void> {
     if (parserInitialized) return;
@@ -49,8 +50,6 @@ async function ensureParserInitialized(): Promise<void> {
 // ============================================================================
 
 export default function (pi: ExtensionAPI) {
-    let automodeEnabled = true;
-
     // Per-session memoization of "Yes, allow this session" approvals. Lives
     // for the lifetime of this extension instance (one pi process); the
     // extension factory is re-entered on every session_start, so the set is
