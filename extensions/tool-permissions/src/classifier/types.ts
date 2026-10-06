@@ -83,15 +83,3 @@ export function buildRequestHeaders(resolved: ResolvedClassifierConfig): Record<
     }
     return headers;
 }
-
-/**
- * Validate and normalize a raw label value from a classifier response.
- * Throws {@link ClassifierError} for anything outside allow/ask/deny.
- */
-export function normalizeLabel(label: unknown): ClassifierLabel {
-    const normalized = typeof label === "string" ? label.trim().toLowerCase() : "";
-    if (normalized === "allow" || normalized === "ask" || normalized === "deny") {
-        return normalized;
-    }
-    throw new ClassifierError(`Classifier returned unknown label "${String(label)}"`);
-}

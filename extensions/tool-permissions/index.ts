@@ -21,7 +21,7 @@ import type { ExtensionAPI, ToolCallEvent, ToolCallEventResult } from "@earendil
 import { initParser } from "../shared/bash-parser/index";
 import { type PermissionResult, PermissionSelector, type PermissionSelectorOption } from "../shared/tui-components/index";
 import { loadClassifier } from "./src/classifier";
-import { setIntentFiles as setClassifierIntentFiles } from "./src/classifier/llm";
+import { setIntentFiles as setClassifierIntentFiles } from "./src/classifier/systemone";
 import { formatConfirmMessage } from "./src/confirmation-message";
 import { checkPermission } from "./src/permission-check";
 import type { ParsedPermissions } from "./src/permission-parsing";
