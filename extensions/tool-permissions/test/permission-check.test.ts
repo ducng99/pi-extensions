@@ -600,6 +600,52 @@ describe("checkPermission: regex patterns that look like paths (grep/rg/sed/awk)
     });
 });
 
+describe("checkPermission: bash `time` handling", () => {
+    const cwd = "/home/user/project";
+
+    test("asks for `time` wrapping an unlisted command even in automode", async () => {
+        const perms = makePerms({});
+        const result = await checkPermission(
+            "bash",
+            { command: "time .venv/bin/python /tmp/script.py" },
+            perms,
+            cwd,
+            () => true,
+            undefined,
+            async () => ({ cwd, gitRemote: undefined, gitStatus: undefined, recentToolCalls: [], agentTouchedFiles: [] }),
+            () => [],
+        );
+        expect(result.decision).toBe("ask");
+    });
+
+    test("allows `time` wrapping an allow-listed command via rule match on the wrapped command", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "git status*" }] });
+        const result = await checkPermission("bash", { command: "time git status --short" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("allows `time` wrapping a default-allowed command", async () => {
+        const perms = makePerms({});
+        const result = await checkPermission("bash", { command: "time echo hello" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("deny rules apply to the wrapped command", async () => {
+        const perms = makePerms({
+            deny: [{ category: "bash", pattern: "perl *" }],
+            allow: [{ category: "bash", pattern: "perl *" }],
+        });
+        const result = await checkPermission("bash", { command: "time perl -e 'print 1'" }, perms, cwd);
+        expect(result.decision).toBe("deny");
+    });
+
+    test("allows bare `time` with no wrapped command", async () => {
+        const perms = makePerms({});
+        const result = await checkPermission("bash", { command: "time" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+});
+
 describe("checkPermission: bash `cd` auto-allow", () => {
     const cwd = "/home/user/project";
 

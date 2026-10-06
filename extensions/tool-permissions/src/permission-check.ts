@@ -381,9 +381,15 @@ async function checkBashPermission(
         return { decision: "ask", reason: REASON_BASH_PARSE_ERROR };
     }
 
-    const commands = parseResult.commands;
+    const commands = parseResult.commands.flatMap((c) => {
+        // `time <cmd>` executes <cmd>, so evaluate it without the keyword.
+        // Bare `time` only reports shell times — drop it.
+        if (c.args[0] !== "time") return [c];
+        if (c.args.length === 1) return [];
+        return [{ ...c, args: c.args.slice(1), argString: c.argString.replace(/^time\s+/, "") }];
+    });
     if (commands.length === 0) {
-        return { decision: "ask" };
+        return { decision: "allow" };
     }
 
     // 1. Deny

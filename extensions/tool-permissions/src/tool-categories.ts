@@ -52,6 +52,4 @@ export const DEFAULT_ALLOWED_BASH_COMMANDS = new Set([
     // Command lookup (read-only)
     "type",
     "which",
-    // Shell info (read-only)
-    "time",
 ]);
