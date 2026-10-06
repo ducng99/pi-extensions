@@ -10,8 +10,8 @@ import { ClassifierError, type ClassifierLabel } from "./types";
 // Defaults
 // ============================================================================
 
-const PROVIDER = "llama-classifier";
-const MODEL_NAME = "clef";
+const PROVIDER = "cloudflare-workers-ai";
+const MODEL_NAME = "@cf/cloudflare/clef";
 const TIMEOUT_MS = 30_000;
 const CONFIDENCE_THRESHOLD = 0.6;
 
