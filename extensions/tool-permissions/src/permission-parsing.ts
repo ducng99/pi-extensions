@@ -2,9 +2,34 @@
 // Config Parsing
 // ============================================================================
 
+import { homedir } from "os";
+import { normalize, resolve } from "path";
+
 export interface PermissionRule {
     category: string;
     pattern: string;
+}
+
+/**
+ * Tool categories whose rule pattern is a file path (as opposed to a bash
+ * command string, a URL, an agent name, ...). Only these get `~` expanded to
+ * the home directory — bash patterns are matched against the raw command
+ * text (`cat ~/x`), so expanding them would break matching.
+ */
+const FILE_PATH_PATTERN_TOOLS = new Set(["read", "edit", "find", "glob"]);
+
+/**
+ * Expand a leading `~` / `~/` in a rule pattern to the home directory.
+ * Other patterns are returned unchanged.
+ */
+function expandTildeInPattern(pattern: string): string {
+    if (pattern === "~") {
+        return normalize(homedir());
+    }
+    if (pattern.startsWith("~/") || pattern.startsWith("~\\")) {
+        return normalize(resolve(homedir(), pattern.slice(2)));
+    }
+    return pattern;
 }
 
 export interface ParsedPermissions {
@@ -18,7 +43,7 @@ export function parseClaudePermissionString(entry: string): { tool: string | nul
     // Format: "ToolName(pattern)" or just "ToolName"
     const parenIdx = entry.indexOf("(");
     if (parenIdx === -1) {
-    // No parentheses — catch-all pattern
+        // No parentheses — catch-all pattern
         return { tool: entry.toLowerCase(), pattern: "*" };
     }
 
@@ -53,7 +78,11 @@ export function parseClaudePermissionString(entry: string): { tool: string | nul
     }
 
     // Normalize to lowercase for case-insensitive matching
-    return { tool: tool.toLowerCase(), pattern };
+    const normalizedTool = tool.toLowerCase();
+    const normalizedPattern = FILE_PATH_PATTERN_TOOLS.has(normalizedTool)
+        ? expandTildeInPattern(pattern)
+        : pattern;
+    return { tool: normalizedTool, pattern: normalizedPattern };
 }
 
 export function parseClaudePerms(content: string): ParsedPermissions {
