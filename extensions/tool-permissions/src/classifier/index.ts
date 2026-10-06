@@ -21,7 +21,7 @@ import { classifyBashCommand as classifyWithSystemOne, loadClassifier as loadSys
 
 type ClassifierBackend = "classifier" | "systemone";
 
-const CLASSIFIER_BACKEND: ClassifierBackend = "classifier";
+const CLASSIFIER_BACKEND: ClassifierBackend = "systemone";
 
 export async function loadClassifier(modelRegistry: ModelRegistry) {
     if (CLASSIFIER_BACKEND === "systemone") {

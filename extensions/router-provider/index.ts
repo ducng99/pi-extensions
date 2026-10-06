@@ -1,4 +1,5 @@
-import { createProvider, type Model } from "@earendil-works/pi-ai";
+import { type ClassifierApi, createProvider, type Model } from "@earendil-works/pi-ai";
+import { typesafeSystemOneApi } from "@earendil-works/pi-ai/api/typesafe-system-one.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -91,5 +92,42 @@ export default async function (pi: ExtensionAPI) {
             });
         },
         api: openAICompletionsApi(),
+    }));
+
+    pi.registerProvider(createProvider<ClassifierApi>({
+        id: "llama-classifier",
+        name: "llama.cpp classifier",
+        baseUrl: "https://rosiebot.panga-pain.ts.net:20100/v1",
+        auth: {
+            apiKey: {
+                name: "Tom API key",
+                async resolve() {
+                    if (process.env.TOM_API_KEY) {
+                        return {
+                            auth: {
+                                apiKey: process.env.TOM_API_KEY,
+                            },
+                            source: "Tom API key (env)",
+                        };
+                    }
+                },
+            },
+        },
+        models: [
+            {
+                type: "classifier",
+                id: "clef",
+                name: "Clef",
+                api: "typesafe-system-one",
+                provider: "llama-classifier",
+                baseUrl: "https://rosiebot.panga-pain.ts.net:20100/v1",
+                input: ["text", "image"],
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                contextWindow: 65536,
+            },
+        ],
+        classifiers: {
+            "typesafe-system-one": typesafeSystemOneApi(),
+        },
     }));
 }

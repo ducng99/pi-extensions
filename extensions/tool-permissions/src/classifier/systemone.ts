@@ -6,37 +6,11 @@ import type { ParsedPermissions } from "../permission-parsing";
 import type { ClassifierSessionContext } from "../session-context";
 import { ClassifierError, type ClassifierLabel } from "./types";
 
-/**
- * Decision backend: classifies a bash command as allow / ask / deny via a single
- * `modelRegistry.complete()` chat completion — pi resolves provider auth,
- * base URL, headers, timeout and transport at request time, so no request is
- * handcrafted with `fetch()`.
- *
- * Mirrors Claude Code's auto mode classifier (see
- * `../claudecode-automode-findings.md`) with the layout we have access to:
- * - system prompt: task + allow/ask/deny criteria (from AGENTS.md policy) +
- *   `<user_rules>` (claude settings / plan mode / subagent rules) + an
- *   `<environment>` block (cwd / gitRemote / agentTouchedFiles / gitStatus).
- * - user (intent): the user's pre-loaded AGENTS.md / CLAUDE.md configuration
- *   files, treated as user intent (Claude Code sends CLAUDE.md the same way).
- * - user (transcript): normalized transcript of the current session in
- *   chronological order — user messages as `{"user": "message"}`, tool calls
- *   as `{"<tool>": "<details>"}`. No assistant prose and no tool responses
- *   (model-authored text could be crafted to influence the classifier).
- * - assistant (prefill): the tool call in question, e.g. `{"bash": "echo hi"}`.
- *   The model continues from here with `{"label": "allow" | "ask" | "deny"}`.
- *
- * Like Claude Code there is no fixed "last N" window: the whole active
- * context (post-compaction) is sent, bounded only by truncation of individual
- * texts; an oversized prompt fails the request and falls back to `ask`
- * (manual approval) — fail closed, never fail open.
- */
-
 // ============================================================================
 // Defaults
 // ============================================================================
 
-const PROVIDER = "llama.cpp";
+const PROVIDER = "llama-classifier";
 const MODEL_NAME = "clef";
 const TIMEOUT_MS = 30_000;
 const CONFIDENCE_THRESHOLD = 0.6;
@@ -328,17 +302,11 @@ async function requestLabel(
 }
 
 /**
- * Classify a bash command as allow / ask / deny via chat completion.
- *
- * `entries` is the live session history (`sessionManager.getEntries()`); the
- * transcript derives from it, excluding assistant prose and tool responses.
- * `sessionContext` feeds the system prompt's `<environment>` block; `rules`
- * feeds the `<user_rules>` block. User instruction files come from
- * {@link setIntentFiles}.
+ * Classify a bash command as allow / ask / deny via classifier model.
  *
  * Never throws — request failures (network, HTTP, malformed/unknown label,
  * prompt overflow) degrade to `ask` so the user gets the final say
- * (fail closed to the manual approval flow, like Claude Code).
+ * (fail closed to the manual approval flow).
  */
 export async function classifyBashCommand(
     command: string,
