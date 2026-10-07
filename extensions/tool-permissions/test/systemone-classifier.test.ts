@@ -2,12 +2,12 @@ import type { ClassifierModel, ClassifierApi, ClassifierContext, ClassifierResul
 import type { ModelRegistry, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
-import { buildTranscriptLines, classifyBashCommand, loadClassifier, setIntentFiles } from "../src/classifier/systemone";
+import { buildTranscriptLines, classifyToolCall, loadClassifier, setIntentFiles } from "../src/classifier/systemone";
 import type { ParsedPermissions } from "../src/permission-parsing";
 import type { ClassifierSessionContext } from "../src/session-context";
 
 // Updated for systemone classifier (decision model / classify() backend)
-// Mock registry uses findOfType("classifier", "llama.cpp", "clef") + classify()
+// Mock registry uses findOfType("classifier", "aimachine", "oc/jev-1.13-free") + classify()
 type AnyEntry = { type: string; message?: { role: string; content?: unknown } };
 
 function asEntries(entries: AnyEntry[]): SessionEntry[] {
@@ -111,7 +111,7 @@ describe("buildTranscriptLines", () => {
     });
 });
 
-describe("classifyBashCommand (systemone backend)", () => {
+describe("classifyToolCall (systemone backend)", () => {
     let captured: { modelId: string; context: ClassifierContext; options: Record<string, unknown> | undefined }[] = [];
     let replyChoice = "allow";
     let replyProbabilities: Record<string, number> = { allow: 0.95 };
@@ -123,7 +123,7 @@ describe("classifyBashCommand (systemone backend)", () => {
     let receivedSignal: AbortSignal | undefined;
 
     const fakeClassifierModel = {
-        id: "clef", name: "Clef", api: "typesafe-system-one" as const, provider: "llama.cpp" as const,
+        id: "oc/jev-1.13-free", name: "Jev", api: "typesafe-system-one" as const, provider: "aimachine" as const,
         baseUrl: "http://classifier.test/v1", reasoning: false, input: ["text"] as const,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 131_072, maxTokens: 32_768,
         type: "classifier" as const,
@@ -131,7 +131,7 @@ describe("classifyBashCommand (systemone backend)", () => {
 
     const registry = {
         findOfType: (type: string, provider: string, modelId: string) =>
-            modelAvailable && type === "classifier" && provider === "llama.cpp" && modelId === "clef"
+            modelAvailable && type === "classifier" && provider === "aimachine" && modelId === "oc/jev-1.13-free"
                 ? fakeClassifierModel
                 : undefined,
         classify: async (model: ClassifierModel<ClassifierApi>, context: ClassifierContext, options?: Record<string, unknown>) => {
@@ -139,7 +139,7 @@ describe("classifyBashCommand (systemone backend)", () => {
             captured.push({ modelId: model.id, context, options });
             if (classifyFailure) throw classifyFailure;
             return {
-                api: "typesafe-system-one" as const, provider: "llama.cpp" as const, model: model.id,
+                api: "typesafe-system-one" as const, provider: "aimachine" as const, model: model.id,
                 answers: { action: { type: "choice" as const, choice: replyChoice, probabilities: replyProbabilities, confidence: replyConfidence } },
                 stopReason: replyStopReason, errorMessage: replyErrorMessage, timestamp: Date.now(),
             } as ClassifierResult;
@@ -154,7 +154,7 @@ describe("classifyBashCommand (systemone backend)", () => {
     });
 
     async function classify(rules?: ParsedPermissions) {
-        return classifyBashCommand("echo hello", undefined, sessionContext, asEntries([userEntry("clean up"), assistantToolEntry("bash", { command: "ls -la" })]), rules);
+        return classifyToolCall("bash", { command: "echo hello" }, undefined, sessionContext, asEntries([userEntry("clean up"), assistantToolEntry("bash", { command: "ls -la" })]), rules);
     }
 
     test("calls registry.classify with state layout and questions", async () => {
@@ -162,7 +162,7 @@ describe("classifyBashCommand (systemone backend)", () => {
         expect(result.decision).toBe("allow");
         expect(captured.length).toBe(1);
         const call = captured[0]!;
-        expect(call.modelId).toBe("clef");
+        expect(call.modelId).toBe("oc/jev-1.13-free");
         expect(call.options).toMatchObject({ timeoutMs: 10_000 });
         expect(call.context.state).toHaveProperty("rules");
         expect(call.context.state).toHaveProperty("cwd", "/home/user/project");
@@ -211,7 +211,7 @@ describe("classifyBashCommand (systemone backend)", () => {
         modelAvailable = false;
         const result = await classify();
         expect(result.decision).toBe("ask");
-        expect(result.reason).toContain("llama.cpp/clef");
+        expect(result.reason).toContain("aimachine/oc/jev-1.13-free");
     });
 
     test("intent files added as first user message, before the transcript", async () => {
@@ -245,14 +245,14 @@ describe("classifyBashCommand (systemone backend)", () => {
     test("abort signal forwarded to classify options", async () => {
         replyChoice = "deny";
         const controller = new AbortController();
-        await classifyBashCommand("echo hi", controller.signal, sessionContext, asEntries([userEntry("hi")]), undefined);
+        await classifyToolCall("bash", { command: "echo hi" }, controller.signal, sessionContext, asEntries([userEntry("hi")]), undefined);
         expect(receivedSignal).toBe(controller.signal);
     });
 
     test("low confidence on allow downgrades to ask", async () => {
-        replyChoice = "allow"; replyProbabilities = { allow: 0.6 }; replyConfidence = 0.6;
+        replyChoice = "allow"; replyProbabilities = { allow: 0.55 }; replyConfidence = 0.55;
         const result = await classify();
         expect(result.decision).toBe("ask");
-        expect(result.reason).toContain("0.60");
+        expect(result.reason).toContain("0.55");
     });
 });

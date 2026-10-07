@@ -58,6 +58,17 @@ export default async function (pi: ExtensionAPI) {
                 contextWindow: 1_001_000,
                 maxTokens: 131072,
             },
+            {
+                type: "classifier",
+                id: "oc/jev-1.13-free",
+                name: "Jev",
+                api: "typesafe-system-one",
+                provider: PROVIDER_ID,
+                baseUrl: BASE_URL,
+                input: ["text"],
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                contextWindow: 32768,
+            },
         ],
         async fetchModels(context) {
             const response = await fetch(BASE_URL + "/models", {
@@ -74,6 +85,11 @@ export default async function (pi: ExtensionAPI) {
                     input.push("image");
                 }
 
+                let contextWindow = 1_001_000;
+                if (model.capabilities?.contextWindow && model.capabilities.contextWindow >= 262144) {
+                    contextWindow = model.capabilities.contextWindow;
+                }
+
                 return {
                     id: model.id,
                     name: model.id,
@@ -86,12 +102,13 @@ export default async function (pi: ExtensionAPI) {
                     },
                     input,
                     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-                    contextWindow: model.capabilities?.contextWindow ?? 1_001_000,
+                    contextWindow,
                     maxTokens: model.max_completion_tokens ?? 131072,
                 } satisfies Model<"openai-completions">;
             });
         },
         api: openAICompletionsApi(),
+        classifiers: { "typesafe-system-one": typesafeSystemOneApi() },
     }));
 
     pi.registerProvider(createProvider<ClassifierApi>({

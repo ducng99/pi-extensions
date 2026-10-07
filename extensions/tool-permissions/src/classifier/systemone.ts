@@ -10,9 +10,11 @@ import { ClassifierError, type ClassifierLabel } from "./types";
 // Defaults
 // ============================================================================
 
-const PROVIDER = "cloudflare-workers-ai";
-const MODEL_NAME = "@cf/cloudflare/clef";
-const TIMEOUT_MS = 30_000;
+// const PROVIDER = "cloudflare-workers-ai";
+// const MODEL_NAME = "@cf/cloudflare/clef";
+const PROVIDER = "aimachine";
+const MODEL_NAME = "oc/jev-1.13-free";
+const TIMEOUT_MS = 10_000;
 const CONFIDENCE_THRESHOLD = 0.6;
 
 const RULES = `
@@ -302,14 +304,15 @@ async function requestLabel(
 }
 
 /**
- * Classify a bash command as allow / ask / deny via classifier model.
+ * Classify a tool call as allow / ask / deny via classifier model.
  *
  * Never throws — request failures (network, HTTP, malformed/unknown label,
  * prompt overflow) degrade to `ask` so the user gets the final say
  * (fail closed to the manual approval flow).
  */
-export async function classifyBashCommand(
-    command: string,
+export async function classifyToolCall(
+    toolName: string,
+    input: Record<string, unknown>,
     signal?: AbortSignal,
     sessionContext?: ClassifierSessionContext,
     entries?: SessionEntry[],
@@ -329,7 +332,7 @@ export async function classifyBashCommand(
         if (intent) messages.push({ user: intent });
         messages.push(...transcript);
 
-        return await requestLabel(model, buildSessionContext(sessionContext, rules), messages, { bash: command }, { signal });
+        return await requestLabel(model, buildSessionContext(sessionContext, rules), messages, { [toolName]: toolDetail(toolName, input) }, { signal });
     }
     catch (err) {
         return { decision: "ask", reason: "Decision classifier request failed\n" + String(err) };

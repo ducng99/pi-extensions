@@ -11,15 +11,15 @@ import { parseClaudePerms } from "../src/permission-parsing";
 // file. `mock.module` overwrites the exports of the already-loaded module and
 // permission-check's live binding picks up the replacement.
 const classifyMock = mock(
-    async (command: string, signal?: AbortSignal): Promise<PermissionDecision> => {
+    async (toolName: string, input?: Record<string, unknown>, signal?: AbortSignal): Promise<PermissionDecision> => {
         // Fail loudly if a test triggers classification without opting in via
         // `mockImplementation` (the automode suite's beforeEach opts in).
-        throw new Error(`Unexpected classifier call: ${command}${signal ? " (with signal)" : ""}`);
+        throw new Error(`Unexpected classifier call: ${toolName}${signal ? " (with signal)" : ""}`);
     },
 );
 
 mock.module("../src/classifier", () => ({
-    classifyBashCommand: classifyMock,
+    classifyToolCall: classifyMock,
 }));
 
 // Initialize parser before all tests
@@ -1035,7 +1035,8 @@ describe("checkPermission: automode classifier integration", () => {
         );
         expect(result.decision).toBe("allow");
         expect(classifyMock).toHaveBeenCalledTimes(1);
-        expect(classifyMock.mock.calls[0]![0]).toBe("curl https://example.com");
+        expect(classifyMock.mock.calls[0]![0]).toBe("bash");
+        expect(classifyMock.mock.calls[0]![1]).toMatchObject({ command: "curl https://example.com" });
     });
 
     test("automode on: classifier ask is returned with its reason", async () => {
@@ -1173,8 +1174,8 @@ describe("checkPermission: automode classifier integration", () => {
         // `echo hello` resolves via default-allowed, but `curl` is unresolved, so
         // the classifier is consulted once with the WHOLE command string.
         expect(result.decision).toBe("allow");
-        expect(classifyMock).toHaveBeenCalledTimes(1);
-        expect(classifyMock.mock.calls[0]![0]).toBe("echo hello; curl https://example.com");
+        expect(classifyMock.mock.calls[0]![0]).toBe("bash");
+        expect(classifyMock.mock.calls[0]![1]).toMatchObject({ command: "echo hello; curl https://example.com" });
     });
 
     test("automode on: classifier receives the abort signal", async () => {
@@ -1188,8 +1189,7 @@ describe("checkPermission: automode classifier integration", () => {
             () => true,
             controller.signal,
         );
-        expect(classifyMock).toHaveBeenCalledTimes(1);
-        expect(classifyMock.mock.calls[0]![1]).toBe(controller.signal);
+        expect(classifyMock.mock.calls[0]![2]).toBe(controller.signal);
     });
 
     test("automode on: complex command is classified with the full command string", async () => {
@@ -1206,8 +1206,8 @@ describe("checkPermission: automode classifier integration", () => {
             () => true,
         );
         expect(result).toEqual({ decision: "ask", reason });
-        expect(classifyMock).toHaveBeenCalledTimes(1);
-        expect(classifyMock.mock.calls[0]![0]).toBe("echo $(curl https://example.com)");
+        expect(classifyMock.mock.calls[0]![0]).toBe("bash");
+        expect(classifyMock.mock.calls[0]![1]).toMatchObject({ command: "echo $(curl https://example.com)" });
     });
 
     test("automode on: complex command allowed by classifier falls through to normal checks", async () => {
@@ -1221,8 +1221,8 @@ describe("checkPermission: automode classifier integration", () => {
         );
         // Classifier says allow → fall through; `echo` is default-allowed.
         expect(result.decision).toBe("allow");
-        expect(classifyMock).toHaveBeenCalledTimes(1);
-        expect(classifyMock.mock.calls[0]![0]).toBe("echo $(curl https://example.com)");
+        expect(classifyMock.mock.calls[0]![0]).toBe("bash");
+        expect(classifyMock.mock.calls[0]![1]).toMatchObject({ command: "echo $(curl https://example.com)" });
     });
 
     test("automode on: complex command is classified with the full raw command string", async () => {
@@ -1238,8 +1238,8 @@ describe("checkPermission: automode classifier integration", () => {
         // command string; `cat` is not default-allowed so classification
         // decides the outcome.
         expect(result.decision).toBe("allow");
-        expect(classifyMock).toHaveBeenCalledTimes(1);
-        expect(classifyMock.mock.calls[0]![0]).toBe("cat <<EOF\nhello\nEOF");
+        expect(classifyMock.mock.calls[0]![0]).toBe("bash");
+        expect(classifyMock.mock.calls[0]![1]).toMatchObject({ command: "cat <<EOF\nhello\nEOF" });
     });
 
     test("automode on: parse errors ask without consulting classifier", async () => {

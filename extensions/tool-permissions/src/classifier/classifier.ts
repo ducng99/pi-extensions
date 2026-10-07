@@ -5,7 +5,7 @@ import type { ClassifierSessionContext } from "../session-context";
 import { buildRequestHeaders, ClassifierError, type ClassifierLabel, type ResolvedClassifierConfig, resolveProviderConfig } from "./types";
 
 /**
- * Text-classifier backend: classifies a bash command as allow / ask / deny by
+ * Text-classifier backend: classifies a tool call as allow / ask / deny by
  * querying the classifier server's `/autoshell` endpoint through pi's model
  * manager.
  *
@@ -19,9 +19,10 @@ import { buildRequestHeaders, ClassifierError, type ClassifierLabel, type Resolv
  * ```
  * `context` is the full {@link ClassifierSessionContext} (cwd, gitRemote,
  * gitStatus, recentToolCalls, agentTouchedFiles, lastUserPrompt). No
- * assistant message is part of it — the command is the top-level `command`
- * field, and model-authored prose is never sent, so it cannot steer the
- * verdict.
+ * assistant message is part of it — the tool call is the top-level `command`
+ * field (bash passes its raw command; other tools are serialized as
+ * `toolName <arg>`), and model-authored prose is never sent, so it cannot
+ * steer the verdict.
  *
  * Response body:
  * ```json
@@ -61,7 +62,7 @@ export async function loadClassifier(modelRegistry: ModelRegistry) {
 
     // Kick off the model load on the server without blocking: see the module
     // doc comment. Errors are swallowed — warmup is best-effort and any real
-    // problem will surface through `classifyBashCommand`.
+    // problem will surface through `classifyToolCall`.
     warmupModel();
 }
 
@@ -71,7 +72,7 @@ export async function loadClassifier(modelRegistry: ModelRegistry) {
  * tens of seconds with llama.cpp and blow the probe timeout).
  */
 function warmupModel() {
-    requestDecision(buildBody("echo warmup"), { timeoutMs: WARMUP_TIMEOUT_MS }).catch(() => {});
+    requestDecision(buildBody("bash", { command: "echo warmup" }), { timeoutMs: WARMUP_TIMEOUT_MS }).catch(() => {});
 }
 
 // ============================================================================
@@ -80,7 +81,7 @@ function warmupModel() {
 
 /** POST body for the classifier endpoint. */
 interface ClassifierRequestBody {
-    /** The shell command under evaluation. */
+    /** The tool call under evaluation, rendered as a command string. */
     command: string;
     /** Shell dialect the command is written in. */
     shell: typeof SHELL;
@@ -89,11 +90,42 @@ interface ClassifierRequestBody {
 }
 
 /**
- * Build the request body for a bash command: the command itself, the shell
+ * Render a tool call as the `command` string the endpoint expects: bash
+ * passes its raw command through, every other tool is serialized as
+ * `toolName <primary arg>` (e.g. `edit /path/to/file`).
+ */
+function renderToolCall(toolName: string, input: Record<string, unknown>): string {
+    if (toolName === "bash") return typeof input.command === "string" ? input.command : "";
+    const argString = buildToolArgString(toolName, input);
+    return argString ? `${toolName} ${argString}` : toolName;
+}
+
+/** Primary argument of a tool call, used for classifier rendering. */
+function buildToolArgString(toolName: string, input: Record<string, unknown>): string {
+    switch (toolName) {
+        case "edit":
+        case "write":
+        case "read":
+        case "ls":
+        case "find":
+            return typeof input.path === "string" ? input.path : "";
+        case "grep":
+            return typeof input.pattern === "string" ? input.pattern : "";
+        case "webfetch":
+            return typeof input.url === "string" ? input.url : "";
+        case "subagent":
+            return typeof input.agent === "string" ? input.agent : "";
+        default:
+            return "";
+    }
+}
+
+/**
+ * Build the request body for a tool call: its rendered command, the shell
  * dialect, and the session context as structured JSON (absent during warmup).
  */
-function buildBody(command: string, sessionContext?: ClassifierSessionContext): ClassifierRequestBody {
-    const body: ClassifierRequestBody = { command, shell: SHELL };
+function buildBody(toolName: string, input: Record<string, unknown>, sessionContext?: ClassifierSessionContext): ClassifierRequestBody {
+    const body: ClassifierRequestBody = { command: renderToolCall(toolName, input), shell: SHELL };
     if (sessionContext) body.context = sessionContext;
     return body;
 }
@@ -192,19 +224,20 @@ async function requestDecision(body: ClassifierRequestBody, options: RequestOpti
 }
 
 /**
- * Classify a bash command as allow / ask / deny. The endpoint and key are resolved
+ * Classify a tool call as allow / ask / deny. The endpoint and key are resolved
  * from the `aimachine` provider via the model manager (see the module docs).
  *
  * Never throws — request failures degrade to an `ask` decision so the user
  * gets the final say.
  */
-export async function classifyBashCommand(
-    command: string,
+export async function classifyToolCall(
+    toolName: string,
+    input: Record<string, unknown>,
     signal?: AbortSignal,
     sessionContext?: ClassifierSessionContext,
 ): Promise<PermissionDecision> {
     try {
-        return await requestDecision(buildBody(command, sessionContext), { signal });
+        return await requestDecision(buildBody(toolName, input, sessionContext), { signal });
     }
     catch (err) {
         return { decision: "ask", reason: "Classifier request failed\n" + String(err) };

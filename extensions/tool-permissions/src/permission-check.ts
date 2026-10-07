@@ -5,7 +5,7 @@ import { isAbsolute, normalize, relative, resolve, sep } from "path";
 
 import { parseBashCommand } from "../../shared/bash-parser/index";
 import { matchPattern } from "../../shared/pattern-matching/index";
-import { classifyBashCommand } from "./classifier";
+import { classifyToolCall } from "./classifier";
 import type { ParsedPermissions } from "./permission-parsing";
 import type { ClassifierSessionContext } from "./session-context";
 import { DEFAULT_ALLOWED_BASH_COMMANDS, DEFAULT_ALLOWED_TOOLS, TOOL_CATEGORY } from "./tool-categories";
@@ -236,7 +236,28 @@ export async function checkPermission(
     // format Claude Code uses for MCP permission rules), so rules declared in
     // claude settings apply here directly.
     if (isMcpTool(toolName)) {
-        return checkMcpPermission(toolName, merged);
+        const mcpDecision = checkMcpPermission(toolName, merged);
+        // Explicit deny/ask rules take priority; only unresolved MCP calls
+        // (no matching rule) fall through to the classifier in automode.
+        if (mcpDecision === null) {
+            if (isAutomodeOn?.()) {
+                const argString = buildArgString(toolName, input);
+                const classified = await classifyToolCall(
+                    toolName,
+                    input,
+                    signal,
+                    sessionContextProvider ? await sessionContextProvider() : undefined,
+                    sessionEntriesProvider?.(),
+                    merged,
+                );
+                if (classified.decision === "deny") {
+                    return { decision: "deny", reason: REASON_AUTO_MODE_DENIED, notify: classified.reason };
+                }
+                return classified;
+            }
+            return { decision: "ask" };
+        }
+        return mcpDecision;
     }
 
     const category = TOOL_CATEGORY[toolName] ?? toolName;
@@ -271,7 +292,24 @@ export async function checkPermission(
         return { decision: "allow" };
     }
 
-    // 5. Default: ask
+    // 5. Fallback classifier for unresolved tool calls in automode.
+    // Explicit deny/ask rules and out-of-bounds asks above have higher priority.
+    if (isAutomodeOn?.()) {
+        const classified = await classifyToolCall(
+            toolName,
+            input,
+            signal,
+            sessionContextProvider ? await sessionContextProvider() : undefined,
+            sessionEntriesProvider?.(),
+            merged,
+        );
+        if (classified.decision === "deny") {
+            return { decision: "deny", reason: REASON_AUTO_MODE_DENIED, notify: classified.reason };
+        }
+        return classified;
+    }
+
+    // 6. Default: ask
     return { decision: "ask" };
 }
 
@@ -327,7 +365,7 @@ function mcpSpecMatches(spec: string, toolName: string): boolean {
  * specifier in the pattern (Claude scopes them purely by tool name), so the
  * tool's name is matched, not an argument string.
  */
-function checkMcpPermission(toolName: string, merged: ParsedPermissions): PermissionDecision {
+function checkMcpPermission(toolName: string, merged: ParsedPermissions): PermissionDecision | null {
     const matchesRule = (rule: { category: string; pattern: string }): boolean =>
         mcpSpecMatches(rule.category, toolName) && matchPattern(rule.pattern, "");
 
@@ -340,8 +378,7 @@ function checkMcpPermission(toolName: string, merged: ParsedPermissions): Permis
     for (const rule of merged.allow) {
         if (matchesRule(rule)) return { decision: "allow" };
     }
-
-    return { decision: "ask" };
+    return null;
 }
 
 // ============================================================================
@@ -492,7 +529,7 @@ async function checkBashPermission(
             reason: shouldAllow.reason,
         }).catch(() => {});
         if (isAutomodeOn?.()) {
-            const classified = await classifyBashCommand(cmd, signal, await getSessionCtx(), sessionEntriesProvider?.(), merged);
+            const classified = await classifyToolCall("bash", input, signal, await getSessionCtx(), sessionEntriesProvider?.(), merged);
             // A deny verdict blocks the call with a fixed, user-facing reason;
             // the classifier's own reason (with its score) is surfaced as a
             // notification instead of the block message.
