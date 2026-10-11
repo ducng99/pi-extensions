@@ -11,7 +11,7 @@ import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-ag
 
 import { createQuestionsComponent } from "./component";
 import { renderCall, renderResult } from "./renderer";
-import { AskQuestionsParams } from "./schema";
+import { AskQuestionsParams, normalizeQuestion } from "./schema";
 import type { AskQuestionsResult, Question } from "./types";
 
 // ============================================================================
@@ -41,6 +41,7 @@ export default function askUserQuestions(pi: ExtensionAPI) {
 Usage notes:
 - Users will always be able to select "Other" to provide custom text input
 - Use multipleChoice: true to allow multiple answers to be selected for a question
+- Provide answer options via answers (or its alias options), 1-5 options each
 - If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label
         `.trim(),
         promptGuidelines: [
@@ -59,7 +60,14 @@ Usage notes:
                 return errorResult("Error: Maximum 5 questions allowed");
             }
 
-            const questions: Question[] = params.questions;
+            const questions: Question[] = [];
+            for (const q of params.questions) {
+                const normalized = normalizeQuestion(q);
+                if (!normalized) {
+                    return errorResult(`Error: Question "${q.header}" must have a non-empty answers (or options) array`);
+                }
+                questions.push(normalized);
+            }
 
             const result = await ctx.ui.custom<AskQuestionsResult>((tui, theme, _kb, done) => {
                 return createQuestionsComponent(questions, { tui, theme, done });
