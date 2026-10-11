@@ -214,15 +214,14 @@ export default function planExtension(pi: ExtensionAPI) {
                 )
             : await ctx.ui.select("Plan ready — what next?", options);
 
+        ctx.abort();
+
         if (choice?.startsWith("Implement now")) {
             deactivatePlanMode(ctx);
-            pi.sendUserMessage("Implement the plan now.", { deliverAs: "followUp" });
+            pi.sendUserMessage("Implement the plan now.");
         }
         else if (choice?.startsWith("Clear & implement")) {
             ctx.ui.notify("Clear & implement: not yet implemented.", "warning");
-        }
-        else {
-            ctx.abort();
         }
         // "Chat more": close the prompt, stay in plan mode, keep chatting.
     });
