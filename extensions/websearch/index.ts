@@ -16,7 +16,7 @@ function formatResults(data: WebSearchResponse): string {
         const title = r.title || "(no title)";
 
         let content = r.snippet;
-        const truncatedContent = truncateHead(r.snippet, { maxLines: 20, maxBytes: 1024 });
+        const truncatedContent = truncateHead(r.snippet, { maxLines: 40, maxBytes: 4096 });
         if (truncatedContent.truncated) {
             content = truncatedContent.content + " ...(truncated, fetch the URL using webfetch to get full content)";
         }
@@ -44,27 +44,10 @@ export default function websearchTool(pi: ExtensionAPI) {
     pi.registerTool({
         name: "websearch",
         label: "WebSearch",
-        promptSnippet: "Search the web and returns search result information formatted as search result blocks, including links as markdown hyperlinks",
-        description: `
-CRITICAL REQUIREMENT - You MUST follow this:
-  - After answering the user's question, you MUST include a "Sources:" section at the end of your response
-  - In the Sources section, list all relevant URLs from the search results as markdown hyperlinks: [Title](URL)
-  - This is MANDATORY - never skip including sources in your response
-  - Example format:
-
-    [Your answer here]
-
-    Sources:
-    - [Source Title 1](https://example.com/1)
-    - [Source Title 2](https://example.com/2)
-
-IMPORTANT - Use the correct year in search queries:
-  - The current month is ${CURRENT_MONTH_YEAR}. You MUST use this year when searching for recent information, documentation, or current events.
-  - Example: If the user asks for "latest React docs", search for "React documentation" with the current year, NOT last year
-            `.trim(),
+        promptSnippet: "Search the web and returns search result information formatted as search result blocks, including links",
+        description: `Search the web to get information beyound knowledge cutoff. The current month is ${CURRENT_MONTH_YEAR}. You MUST use this year when searching for recent information, documentation, or current events`,
         promptGuidelines: [
-            "Use websearch to discover relevant URLs before calling webfetch.",
-            "Use websearch for accessing information beyond your knowledge cutoff",
+            "Use websearch for current information beyond knowledge cutoff",
         ],
         parameters: WebSearchParams,
 
