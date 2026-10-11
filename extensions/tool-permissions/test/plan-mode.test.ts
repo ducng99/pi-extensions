@@ -76,7 +76,7 @@ describe("settings-loading: plan-mode permissions merged like the subagent file"
         dir = await mkdtemp(join(tmpdir(), "plan-mode-sh-"));
         setPlanModePermissions(PLAN_MODE_PERMISSIONS);
 
-        const merged = mergePermissions(collectAllSettings(dir));
+        const merged = mergePermissions(await collectAllSettings(dir));
         // Plan-mode deny rules must be present in the merged set.
         expect(merged.deny.some(r => r.category === "edit" && r.pattern === "*")).toBe(true);
         expect(merged.deny.some(r => r.category === "bash" && r.pattern === "rm *")).toBe(true);
@@ -87,7 +87,7 @@ describe("settings-loading: plan-mode permissions merged like the subagent file"
         setPlanModePermissions(PLAN_MODE_PERMISSIONS);
         setPlanModePermissions(null);
 
-        const merged = mergePermissions(collectAllSettings(dir));
+        const merged = mergePermissions(await collectAllSettings(dir));
         expect(merged.deny.some(r => r.category === "bash" && r.pattern === "rm *")).toBe(false);
     });
 

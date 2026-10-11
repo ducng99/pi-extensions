@@ -1,4 +1,4 @@
-import type { ClassifierModel, ClassifierApi, ClassifierContext, ClassifierResult } from "@earendil-works/pi-ai";
+import type { ClassifierApi, ClassifierContext, ClassifierModel, ClassifierResult } from "@earendil-works/pi-ai";
 import type { ModelRegistry, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 

@@ -26,8 +26,8 @@ import { formatConfirmMessage } from "./src/confirmation-message";
 import { checkPermission } from "./src/permission-check";
 import type { ParsedPermissions } from "./src/permission-parsing";
 import { SessionAllowlist } from "./src/session-allowlist";
-import { buildSessionContext } from "./src/session-context";
-import { collectAllSettings, mergePermissions, setPlanModePermissions } from "./src/settings-loading";
+import { buildSessionContext, type ExecFn } from "./src/session-context";
+import { collectAllSettings, getRemoteSession, mergePermissions, setPlanModePermissions, setRemoteSession } from "./src/settings-loading";
 
 let parserInitialized = false;
 let initPromise: Promise<void> | null = null;
@@ -63,6 +63,17 @@ export default function (pi: ExtensionAPI) {
     });
     pi.events.on("plan_mode:deactivated", () => {
         setPlanModePermissions(null);
+    });
+
+    // Forward remote connections from the remote extension: while active, the
+    // path boundary and the classifier's git context switch to the remote
+    // machine, and the remote project's claude settings are merged in.
+    pi.events.on("remote:connected", (data) => {
+        const d = data as { remoteCwd: string; exec: ExecFn };
+        setRemoteSession({ remoteCwd: d.remoteCwd, exec: d.exec });
+    });
+    pi.events.on("remote:disconnected", () => {
+        setRemoteSession(null);
     });
 
     // Feed the session's pre-loaded instruction files (AGENTS.md / CLAUDE.md)
@@ -101,9 +112,15 @@ export default function (pi: ExtensionAPI) {
         // Ensure parser is initialized before checking permissions
         await ensureParserInitialized();
 
+        // While a remote session is active, paths are checked against the
+        // remote working directory instead of the local one.
+        const remote = getRemoteSession();
+        const boundaryCwd = remote?.remoteCwd ?? ctx.cwd;
+
         // Collect and merge permissions (cache-friendly — loads on every call,
-        // but file reads are fast for config files)
-        const allSettings = collectAllSettings(ctx.cwd);
+        // but file reads are fast for config files; remote settings are
+        // fetched once per connection)
+        const allSettings = await collectAllSettings(ctx.cwd);
         const merged = mergePermissions(allSettings);
 
         // Derive the classifier's session context lazily (only built when the
@@ -114,10 +131,10 @@ export default function (pi: ExtensionAPI) {
             toolName,
             input,
             merged,
-            ctx.cwd,
+            boundaryCwd,
             () => automodeEnabled,
             ctx.signal,
-            () => buildSessionContext(ctx.sessionManager.getEntries(), ctx.cwd, pi.exec),
+            () => buildSessionContext(ctx.sessionManager.getEntries(), boundaryCwd, remote?.exec ?? pi.exec),
             () => ctx.sessionManager.getEntries(),
         );
 
@@ -137,7 +154,7 @@ export default function (pi: ExtensionAPI) {
             // simpler confirm() dialog which is forwarded to the parent session
             // via the extension_ui_request/extension_ui_response protocol.
             const customResult = await ctx.ui.custom<PermissionResult>((tui, theme, _keybindings, done) => {
-                const contextMsg = formatConfirmMessage(theme, toolName, input, ctx.cwd, decision.reason);
+                const contextMsg = formatConfirmMessage(theme, toolName, input, boundaryCwd, decision.reason);
                 const question = `Allow ${toolName}?`;
                 const rows = tui.terminal.rows;
 
@@ -198,7 +215,7 @@ export default function (pi: ExtensionAPI) {
             // supports yes/no, so the "allow this session" option is not
             // surfaced here; users wanting session-scope can still rely on the
             // TUI prompt, or add an explicit allow rule.
-            const contextMsg = formatConfirmMessage(ctx.ui.theme, toolName, input, ctx.cwd, decision.reason, ctx.hasUI);
+            const contextMsg = formatConfirmMessage(ctx.ui.theme, toolName, input, boundaryCwd, decision.reason, ctx.hasUI);
             const allowed = await ctx.ui.confirm(
                 `Allow ${toolName}?`,
                 contextMsg,
