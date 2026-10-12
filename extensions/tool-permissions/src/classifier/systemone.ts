@@ -10,12 +10,10 @@ import { ClassifierError, type ClassifierLabel } from "./types";
 // Defaults
 // ============================================================================
 
-// const PROVIDER = "cloudflare-workers-ai";
-// const MODEL_NAME = "@cf/cloudflare/clef";
 const PROVIDER = "aimachine";
 const MODEL_NAME = "oc/jev-1.13-free";
 const TIMEOUT_MS = 10_000;
-const CONFIDENCE_THRESHOLD = 0.6;
+const CONFIDENCE_THRESHOLD = 0.7;
 
 const RULES = `
 You receive one agent \`toolCall\`, together with the session context and the chronological prompt history that preceded it.
