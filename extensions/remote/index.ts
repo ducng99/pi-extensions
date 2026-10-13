@@ -5,9 +5,11 @@
  * read, write, edit, bash, ls, find and grep then run on the remote machine at
  * the given path. `/remote stop` terminates the connection.
  *
- * Transport is SSH ControlMaster multiplexing: the first command establishes a
- * master connection (key-based auth required), later commands multiplex over
- * it. The master is closed on /remote stop and session shutdown.
+ * Transport is SSH ControlMaster multiplexing where supported (the first
+ * command establishes a master connection, later commands multiplex over it).
+ * On Windows, whose OpenSSH lacks ControlMaster, every command opens its own
+ * connection instead. Key-based auth is required either way; the master is
+ * closed on /remote stop and session shutdown.
  *
  * The built-in tools are overridden at registration with thin dispatchers that
  * route to remote implementations while a session is active and to the local

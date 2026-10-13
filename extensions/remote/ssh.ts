@@ -56,16 +56,31 @@ export function shQuote(s: string): string {
     return `'${s.replaceAll("'", "'\\''")}'`;
 }
 
-function baseArgs(parsed: RemoteTarget): string[] {
-    const args = [
-        "-o", "ControlMaster=auto",
-        "-o", `ControlPath=${join(remoteControlDir(), "cm-%C")}`,
-        "-o", "ControlPersist=600",
+/**
+ * Windows OpenSSH does not support ControlMaster multiplexing — using it fails
+ * with "getsockname failed: Not a socket". There, every command opens its own
+ * connection instead (slower, but fully functional with key auth).
+ */
+export function supportsControlMaster(): boolean {
+    return process.platform !== "win32";
+}
+
+/** Base ssh options shared by every invocation (multiplexing when supported, timeouts, host-key policy). */
+export function baseArgs(parsed: RemoteTarget): string[] {
+    const args: string[] = [];
+    if (supportsControlMaster()) {
+        args.push(
+            "-o", "ControlMaster=auto",
+            "-o", `ControlPath=${join(remoteControlDir(), "cm-%C")}`,
+            "-o", "ControlPersist=600",
+        );
+    }
+    args.push(
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=10",
         "-o", "StrictHostKeyChecking=accept-new",
         "-o", "ServerAliveInterval=30",
-    ];
+    );
     if (parsed.port !== undefined) {
         args.push("-p", String(parsed.port));
     }
@@ -150,6 +165,7 @@ export async function connectRemote(targetArg: string, remotePath?: string): Pro
 
 /** Close the ControlMaster connection. Idempotent; errors are ignored. */
 export function closeMaster(session: RemoteSession): void {
+    if (!supportsControlMaster()) return; // No master exists on Windows.
     const child = spawn("ssh", [...baseArgs(session), "-O", "exit", session.target], { stdio: "ignore" });
     child.on("error", () => {});
 }

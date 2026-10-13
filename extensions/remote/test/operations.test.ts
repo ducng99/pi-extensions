@@ -29,6 +29,34 @@ describe("toRemotePath", () => {
     });
 });
 
+describe("toRemotePath with a Windows local cwd", () => {
+    const localCwd = "C:\\Users\\tom\\project";
+    const remoteCwd = "/srv/app";
+
+    test("maps the cwd itself", () => {
+        expect(toRemotePath("C:\\Users\\tom\\project", localCwd, remoteCwd)).toBe("/srv/app");
+    });
+
+    test("maps subpaths with backslashes", () => {
+        expect(toRemotePath("C:\\Users\\tom\\project\\src\\index.ts", localCwd, remoteCwd)).toBe("/srv/app/src/index.ts");
+    });
+
+    test("maps relative paths regardless of separator", () => {
+        expect(toRemotePath("src/index.ts", localCwd, remoteCwd)).toBe("/srv/app/src/index.ts");
+        expect(toRemotePath("src\\index.ts", localCwd, remoteCwd)).toBe("/srv/app/src/index.ts");
+        expect(toRemotePath("../other/file", localCwd, remoteCwd)).toBe("C:\\Users\\tom\\other\\file");
+    });
+
+    test("does not match other prefixes sharing a leading substring", () => {
+        expect(toRemotePath("C:\\Users\\tom\\project-other\\file.ts", localCwd, remoteCwd)).toBe("C:\\Users\\tom\\project-other\\file.ts");
+    });
+
+    test("passes POSIX-absolute paths through as remote paths", () => {
+        expect(toRemotePath("/srv/app/src/index.ts", localCwd, remoteCwd)).toBe("/srv/app/src/index.ts");
+        expect(toRemotePath("/etc/passwd", localCwd, remoteCwd)).toBe("/etc/passwd");
+    });
+});
+
 describe("parseRgJsonRow", () => {
     test("parses match events", () => {
         const line = JSON.stringify({

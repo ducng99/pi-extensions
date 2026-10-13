@@ -1,6 +1,25 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseTarget, shQuote } from "../ssh";
+import { baseArgs, parseTarget, shQuote, supportsControlMaster } from "../ssh";
+
+describe("baseArgs", () => {
+    test("includes common options and port", () => {
+        const args = baseArgs({ target: "host", port: 2222 });
+        expect(args).toContain("BatchMode=yes");
+        expect(args).toContain("-p");
+        expect(args).toContain("2222");
+    });
+
+    test("omits port when not specified", () => {
+        expect(baseArgs({ target: "host" })).not.toContain("-p");
+    });
+
+    test(`ControlMaster options are ${supportsControlMaster() ? "included" : "omitted"} on this platform`, () => {
+        const args = baseArgs({ target: "host" });
+        const hasControl = args.some(a => a.startsWith("Control"));
+        expect(hasControl).toBe(supportsControlMaster());
+    });
+});
 
 describe("parseTarget", () => {
     test("parses user@host", () => {

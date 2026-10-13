@@ -1,5 +1,5 @@
 import type { ChildProcess } from "node:child_process";
-import { posix, resolve } from "node:path";
+import { posix, win32 } from "node:path";
 import { createInterface } from "node:readline";
 
 import type {
@@ -33,17 +33,30 @@ export interface RemoteToolResult<TDetails> {
     details: TDetails | undefined;
 }
 
+/** Detects Windows-style local cwds: drive letter or UNC prefix. */
+const WINDOWS_CWD = /^(?:[a-zA-Z]:[\\/]|\\\\)/;
+
 /**
- * Translate an absolute local path to its remote counterpart. Paths inside the
- * local cwd are mapped under the remote cwd; anything else is passed through
- * unchanged (the out-of-bounds permission check flags those first).
+ * Translate a local path to its remote counterpart. Paths inside the local cwd
+ * are mapped under the remote cwd; anything else is passed through unchanged
+ * (the out-of-bounds permission check flags those first).
+ *
+ * A Windows local cwd resolves to backslash paths, so win32 resolution is used
+ * and segments are converted to `/` for the remote side. POSIX-absolute inputs
+ * are passed through as remote paths; win32 resolve() would otherwise turn
+ * them into drive-relative local paths.
  */
 export function toRemotePath(localPath: string, localCwd: string, remoteCwd: string): string {
-    const p = resolve(localCwd, localPath);
-    const base = resolve(localCwd);
+    const pathImpl = WINDOWS_CWD.test(localCwd) ? win32 : posix;
+    if (pathImpl === win32 && posix.isAbsolute(localPath)) {
+        return localPath;
+    }
+    const p = pathImpl.resolve(localCwd, localPath);
+    const base = pathImpl.resolve(localCwd);
     if (p === base) return remoteCwd;
-    if (p.startsWith(`${base}/`)) return remoteCwd + p.slice(base.length);
-    return p;
+    if (!p.startsWith(base + pathImpl.sep)) return p;
+    const relative = p.slice(base.length + pathImpl.sep.length).split(pathImpl.sep).join("/");
+    return `${remoteCwd}${remoteCwd.endsWith("/") ? "" : "/"}${relative}`;
 }
 
 export function createRemoteReadOperations(session: RemoteSession, localCwd: string): ReadOperations {
@@ -154,13 +167,13 @@ export async function remoteLsExecute(
     signal: AbortSignal | undefined,
     localCwd: string,
 ): Promise<RemoteToolResult<LsToolDetails>> {
-    const dirPath = resolve(localCwd, params.path || ".");
-    const remoteDir = toRemotePath(dirPath, localCwd, session.remoteCwd);
+    const requestedPath = params.path || ".";
+    const remoteDir = toRemotePath(requestedPath, localCwd, session.remoteCwd);
     const effectiveLimit = params.limit ?? LS_DEFAULT_LIMIT;
 
     const res = await sshExec(session, `ls -1Ap -- ${shQuote(remoteDir)}`, { signal, timeout: 30 });
     if (res.code !== 0) {
-        const msg = res.stderr.toString("utf-8").trim() || `Path not found: ${dirPath}`;
+        const msg = res.stderr.toString("utf-8").trim() || `Path not found: ${requestedPath}`;
         throw new Error(msg);
     }
 
@@ -451,8 +464,8 @@ export async function remoteGrepExecute(
     signal: AbortSignal | undefined,
     localCwd: string,
 ): Promise<RemoteToolResult<GrepToolDetails>> {
-    const searchLocal = resolve(localCwd, params.path || ".");
-    const searchPath = toRemotePath(searchLocal, localCwd, session.remoteCwd);
+    const requestedPath = params.path || ".";
+    const searchPath = toRemotePath(requestedPath, localCwd, session.remoteCwd);
     const effectiveLimit = Math.max(1, params.limit ?? GREP_DEFAULT_LIMIT);
     const contextValue = params.context && params.context > 0 ? params.context : 0;
 
@@ -464,7 +477,7 @@ export async function remoteGrepExecute(
     );
     const codes = probe.stdout.toString("utf-8").trim().split(/\s+/).map(Number);
     if (codes[0] !== 0) {
-        throw new Error(`Path not found: ${searchLocal}`);
+        throw new Error(`Path not found: ${requestedPath}`);
     }
     const isDirectory = codes[1] === 0;
 
