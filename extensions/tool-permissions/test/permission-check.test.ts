@@ -158,6 +158,79 @@ describe("checkPermission: non-bash tools unchanged", () => {
     });
 });
 
+describe("checkPermission: sensitive .pi/.claude paths", () => {
+    const cwd = "/home/user/project";
+
+    test("asks for read on .pi/settings.json", async () => {
+        const result = await checkPermission("read", { path: ".pi/settings.json" }, makePerms({}), cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("asks for read on .claude/settings.json", async () => {
+        const result = await checkPermission("read", { path: ".claude/settings.json" }, makePerms({}), cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("asks for edit on .pi/agent.md", async () => {
+        const result = await checkPermission("edit", { path: ".pi/agent.md" }, makePerms({}), cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("asks for write on .claude/commands.md", async () => {
+        const result = await checkPermission("write", { path: ".claude/commands.md" }, makePerms({}), cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("asks for read on nested path inside .pi", async () => {
+        const result = await checkPermission("read", { path: ".pi/plans/plan.md" }, makePerms({}), cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("asks for read on nested path inside .claude", async () => {
+        const result = await checkPermission("read", { path: ".claude/commands/custom.md" }, makePerms({}), cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("allows read on a normal path outside .pi/.claude", async () => {
+        const perms = makePerms({ allow: [{ category: "read", pattern: "*" }] });
+        const result = await checkPermission("read", { path: "src/main.ts" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("allows read on a normal path with no rules", async () => {
+        // Default-allowed tools still work for non-sensitive paths
+        const result = await checkPermission("read", { path: "src/main.ts" }, makePerms({}), cwd);
+        expect(result.decision).toBe("ask"); // read is not default-allowed, but it's not sensitive
+    });
+
+    test("allows read on .pi when outside cwd (absolute path to home/.pi)", async () => {
+        // Paths outside cwd are handled by out-of-bounds, not sensitive-path check
+        const result = await checkPermission("read", { path: "/home/user/.pi/settings.json" }, makePerms({}), cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask" && result.reason) {
+            expect(result.reason).not.toContain("sensitive");
+        }
+    });
+});
+
 describe("checkPermission: built-in ls/find/grep tools follow their bash-command rules", () => {
     test("ls tool matches Bash(ls *) with a path", async () => {
         const perms = makePerms({ allow: [{ category: "bash", pattern: "ls *" }] });
@@ -443,6 +516,105 @@ describe("checkPermission: bash out-of-bounds paths", () => {
     test("asks for redirection in piped command to file outside cwd", async () => {
         const perms = makePerms({ allow: [{ category: "bash", pattern: "*" }] });
         const result = await checkPermission("bash", { command: "cat src/main.ts | grep TODO > /tmp/results.txt" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+    });
+});
+
+describe("checkPermission: bash sensitive .pi/.claude paths", () => {
+    const cwd = "/home/user/project";
+
+    test("asks for cat .pi/settings.json", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat .pi/settings.json" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("asks for cat .claude/settings.json", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat .claude/settings.json" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("asks for cat nested path inside .pi", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat .pi/plans/plan.md" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("allows cat on a normal path with allow rule", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat src/main.ts" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("asks for cat with absolute path inside .pi", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat /home/user/project/.pi/settings.json" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("asks for echo redirect to .pi/output.txt", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "echo *" }] });
+        const result = await checkPermission("bash", { command: "echo hello > .pi/output.txt" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("allows echo redirect to a normal path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "echo *" }] });
+        const result = await checkPermission("bash", { command: "echo hello > output.txt" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("asks for cat in a piped command with .pi path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "*" }] });
+        const result = await checkPermission("bash", { command: "cat .pi/settings.json | grep key" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("asks for cat in a chained command with .claude path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "echo *" }] });
+        const result = await checkPermission("bash", { command: "echo hello && cat .claude/settings.json" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("cd into .pi is not auto-allowed", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "echo *" }] });
+        const result = await checkPermission("bash", { command: "cd .pi && echo hello" }, perms, cwd);
+        // cd into .pi is not auto-allowed (the target is a sensitive directory),
+        // so the command chain is not auto-resolved.
+        expect(result.decision).toBe("ask");
+    });
+
+    test("cd into .claude is not auto-allowed", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "echo *" }] });
+        const result = await checkPermission("bash", { command: "cd .claude && echo hello" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+    });
+
+    test("cat inside .pi after cd is blocked", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cd .pi && cat settings.json" }, perms, cwd);
         expect(result.decision).toBe("ask");
     });
 });

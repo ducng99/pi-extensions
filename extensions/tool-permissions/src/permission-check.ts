@@ -69,6 +69,21 @@ function isInsideDir(resolvedPath: string, dir: string): boolean {
 }
 
 /**
+ * Check whether a resolved path is inside a sensitive project directory
+ * (`<boundaryCwd>/.pi` or `<boundaryCwd>/.claude`). Accessing these paths via
+ * read/edit/write can allow an agent to modify its own permission rules.
+ */
+function isSensitivePath(resolvedPath: string, boundaryCwd: string): boolean {
+    const sensitiveDirs = [".pi", ".claude"];
+    const boundary = normalize(resolve(boundaryCwd));
+    for (const dir of sensitiveDirs) {
+        const sensitiveDir = normalize(resolve(boundary, dir));
+        if (isInsideDir(resolvedPath, sensitiveDir)) return true;
+    }
+    return false;
+}
+
+/**
  * Check if a single path is outside the allowed boundary and all additional
  * directories.
  *
@@ -230,6 +245,15 @@ export async function checkPermission(
 ): Promise<PermissionDecision> {
     if (toolName === "bash") {
         return await checkBashPermission(input, merged, cwd, isAutomodeOn, signal, sessionContextProvider, sessionEntriesProvider);
+    }
+
+    // read/edit/write on .pi/.claude is always asked — these files control
+    // permissions and must never be modified silently.
+    if (FILE_PATH_TOOLS.has(toolName)) {
+        const filePath = input.path as string;
+        if (typeof filePath === "string" && isSensitivePath(resolveArgPath(filePath, cwd), cwd)) {
+            return { decision: "ask", reason: "⚠ Accessing sensitive .pi/.claude directory." };
+        }
     }
 
     // MCP tools are addressed with the format `mcp__<server>__<tool>` (the same
@@ -480,6 +504,11 @@ async function checkBashPermission(
             return { decision: "ask", reason: "⚠ Accessing outside allowed directories." };
         }
 
+        // 3b. Sensitive path check: paths inside .pi/.claude must always ask.
+        if (effectiveCwd && isCommandOnSensitivePath(leafCmd.args, leafCmd.argString, effectiveCwd, cwd)) {
+            return { decision: "ask", reason: "⚠ Accessing sensitive .pi/.claude directory." };
+        }
+
         // Complex leaves only get deny-rule checking (already done above); for
         // everything else, ask — or consult the classifier in automode.
         if (leafCmd.isComplex) {
@@ -569,7 +598,30 @@ function getCdTarget(args: string[], resolveCwd: string, boundaryCwd: string, ad
     if (!targetPath) return null;
 
     if (isOutOfBoundsPath(targetPath, resolveCwd, boundaryCwd, additionalDirs)) return null;
-    return resolveArgPath(targetPath, resolveCwd);
+    const resolved = resolveArgPath(targetPath, resolveCwd);
+    if (isSensitivePath(resolved, boundaryCwd)) return null;
+    return resolved;
+}
+
+/**
+ * Check if any path in a single command points to a sensitive directory
+ * (.pi or .claude under the boundary cwd).
+ */
+function isCommandOnSensitivePath(
+    args: string[],
+    argString: string,
+    resolveCwd: string,
+    boundaryCwd: string,
+): boolean {
+    for (const path of extractPathArgs(args)) {
+        if (path === "/dev/null" || /^nul:?$/i.test(path)) continue;
+        if (isSensitivePath(resolveArgPath(path, resolveCwd), boundaryCwd)) return true;
+    }
+    for (const path of extractRedirectionPaths(argString)) {
+        if (path === "/dev/null" || /^nul:?$/i.test(path)) continue;
+        if (isSensitivePath(resolveArgPath(path, resolveCwd), boundaryCwd)) return true;
+    }
+    return false;
 }
 
 /**
