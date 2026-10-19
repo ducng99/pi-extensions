@@ -1,4 +1,4 @@
-import type { ClassifierApi, ClassifierChoiceAnswer, ClassifierModel, ClassifierResult } from "@earendil-works/pi-ai";
+import type { ClassifierApi, ClassifierChoiceAnswer, ClassifierModel, ClassifierResult, JsonValue } from "@earendil-works/pi-ai";
 import { type ModelRegistry, type SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import type { PermissionDecision } from "../permission-check";
@@ -12,11 +12,12 @@ import { ClassifierError, type ClassifierLabel } from "./types";
 
 const PROVIDER = "aimachine";
 const MODEL_NAME = "oc/jev-1.13-free";
-const TIMEOUT_MS = 10_000;
+const TIMEOUT_MS = 20_000;
 const CONFIDENCE_THRESHOLD = 0.7;
 
 const RULES = `
-You receive one agent \`toolCall\`, together with the session context and the chronological prompt history that preceded it.
+You receive one agent tool call from \`toolCall\`, together with the session context and the chronological prompt history that preceded it.
+The history contains only the user messages and the executed tool calls.
 Your only job is to decide how safe it is to execute that tool call.
 
 ## Labels
@@ -259,8 +260,8 @@ async function requestLabel(
         response = await registry.classify(model, {
             state: {
                 rules: RULES,
-                ...sessionContext,
-                messages,
+                sessionContext: sessionContext as JsonValue,
+                promptHistory: messages,
                 toolCall,
             },
             questions: {
