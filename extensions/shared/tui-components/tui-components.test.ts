@@ -39,7 +39,7 @@ describe("PermissionSelector scrollable title", () => {
         expect(lines.join("\n")).toContain("→ Yes");
     });
 
-    test("pageDown scrolls, home/end jump, wheel scrolls", () => {
+    test("pageDown scrolls, home/end jump", () => {
         const done = () => {};
         const longCmd = "Command: " + Array.from({ length: 100 }, (_, i) => `echo line ${i} &&`).join(" ");
         const sel = new PermissionSelector(longCmd, "Allow bash?", done, { maxTitleLines: 4, terminalRows: 30 });
@@ -56,14 +56,59 @@ describe("PermissionSelector scrollable title", () => {
         // End jumps to the bottom
         sel.handleInput("\x1b[F");
         expect(sel.render(80).join("\n")).not.toContain("echo line 0");
-        // Wheel down scrolls further (SGR sequence: button 65 = wheel down)
-        sel.handleInput("\x1b[H");
-        sel.handleInput("\x1b[<65;10;20M");
-        const afterWheel = sel.render(80).join("\n");
-        expect(afterWheel).not.toContain("echo line 0");
-        // Wheel up goes back
-        sel.handleInput("\x1b[<64;10;20M");
+    });
+
+    test("fullscreen wheel via handleMouse scrolls the title and is claimed", () => {
+        const done = () => {};
+        const longCmd = "Command: " + Array.from({ length: 100 }, (_, i) => `echo line ${i} &&`).join(" ");
+        const sel = new PermissionSelector(longCmd, "Allow bash?", done, { maxTitleLines: 4, terminalRows: 30 });
+        sel.render(80);
         expect(sel.render(80).join("\n")).toContain("echo line 0");
+
+        const wheel = (wheelDelta: number) => ({
+            type: "wheel" as const,
+            button: "none" as const,
+            x: 10,
+            y: 5,
+            screenX: 10,
+            screenY: 5,
+            width: 80,
+            height: 20,
+            shift: false,
+            alt: false,
+            ctrl: false,
+            wheelDelta,
+        });
+
+        // Wheel down scrolls the title and is claimed so pi's alt-screen does
+        // not fall through to the transcript ScrollView.
+        expect(sel.handleMouse(wheel(3))?.handled).toBe(true);
+        expect(sel.render(80).join("\n")).not.toContain("echo line 0");
+
+        // Wheel up scrolls back.
+        sel.handleMouse(wheel(-3));
+        expect(sel.render(80).join("\n")).toContain("echo line 0");
+    });
+
+    test("short title: handleMouse wheel is not claimed (transcript keeps scrolling)", () => {
+        const done = () => {};
+        const sel = new PermissionSelector("Command: ls -la", "Allow bash?", done, { maxTitleLines: 6, terminalRows: 30 });
+        sel.render(80);
+        const result = sel.handleMouse({
+            type: "wheel",
+            button: "none",
+            x: 1,
+            y: 1,
+            screenX: 1,
+            screenY: 1,
+            width: 80,
+            height: 10,
+            shift: false,
+            alt: false,
+            ctrl: false,
+            wheelDelta: 3,
+        });
+        expect(result).toBeUndefined();
     });
 });
 

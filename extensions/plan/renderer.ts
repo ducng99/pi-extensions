@@ -15,18 +15,18 @@
  * Scrolling: the plan preview occupies a fixed viewport sized from the
  * terminal height (the same approach pi's own Editor uses). The rendered
  * component always claims exactly chrome + viewport lines, so the select list
- * underneath never gets pushed out of view. PgUp/PgDn (or Ctrl+U / Ctrl+D /
- * Home / End) scroll the plan; ↑/↓ navigate the select list. In fullscreen
- * mode pi's TuiAltScreen viewport consumes PgUp/PgDn/Home/End to scroll the
- * chat before focused components see them, so Ctrl+U/Ctrl+D are the reliable
- * scroll keys there.
+ * underneath never gets pushed out of view. Mouse wheel (via `handleMouse`),
+ * PgUp/PgDn (or Ctrl+U / Ctrl+D / Home / End) scroll the plan; ↑/↓ navigate
+ * the select list. In fullscreen mode pi's TuiAltScreen viewport consumes
+ * PgUp/PgDn/Home/End to scroll the chat before focused components see them,
+ * so Ctrl+U/Ctrl+D are the reliable scroll keys there.
  *
  * Layout: shown via `ui.custom(factory, { overlay: true })` as a fullscreen
  * overlay — chrome + viewport lines fill the terminal exactly.
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { SelectItem } from "@earendil-works/pi-tui";
+import type { SelectItem, TuiMouseEvent } from "@earendil-works/pi-tui";
 import { Container, Markdown, matchesKey, SelectList, Spacer, Text } from "@earendil-works/pi-tui";
 
 /**
@@ -111,32 +111,6 @@ export function createPlanPrompt(
     let maxScrollTop = 0;
     let scrollTop = 0;
 
-    /** SGR mouse wheel sequence, e.g. `\x1b[<64;12;5M` (64 = wheel up, 65 = wheel down). */
-    const ESC = String.fromCharCode(27);
-    const SGR_WHEEL = new RegExp(`^${ESC}\\[<(\\d+);(\\d+);(\\d+)([Mm])$`);
-
-    /** Parse an SGR mouse-wheel sequence; returns the scroll direction or null. */
-    function parseWheel(data: string): number | null {
-        const match = SGR_WHEEL.exec(data);
-        if (match) {
-            const button = Number.parseInt(match[1]!, 10);
-            if ((button & 64) === 0) return null;
-            const direction = button & 3;
-            if (direction === 0) return -1;
-            if (direction === 1) return 1;
-            return null;
-        }
-        // Legacy X10 wheel sequences: `\x1b[M` + button (64 = up, 65 = down).
-        if (data.length === 6 && data.startsWith("\x1b[M")) {
-            const button = data.charCodeAt(3) - 32;
-            if ((button & 64) === 0) return null;
-            const direction = button & 3;
-            if (direction === 0) return -1;
-            if (direction === 1) return 1;
-        }
-        return null;
-    }
-
     function scrollIndicator(direction: "up" | "down", hidden: number): string {
         const body = `... ${direction === "up" ? "↑" : "↓"} ${hidden} more `;
         return " " + theme.fg("dim", body);
@@ -207,15 +181,18 @@ export function createPlanPrompt(
             currentWidth = 0;
             container.invalidate();
         },
-        handleInput: (data: string) => {
-            // Wheel scrolling (only delivered while shown as a focused overlay).
-            const wheelDelta = parseWheel(data);
-            if (wheelDelta !== null) {
-                scrollTop = Math.max(0, Math.min(maxScrollTop, scrollTop + wheelDelta * 3));
+        handleMouse: (event: TuiMouseEvent) => {
+            // pi's TUI dispatches normalized wheel events here. Claim them
+            // while the plan is scrollable — otherwise they fall through to
+            // the transcript ScrollView and scroll the conversation instead.
+            if (event.type === "wheel" && event.wheelDelta && maxScrollTop > 0) {
+                scrollTop = Math.max(0, Math.min(maxScrollTop, scrollTop + event.wheelDelta));
                 tui.requestRender();
-                return;
+                return { handled: true };
             }
-
+            return undefined;
+        },
+        handleInput: (data: string) => {
             const rows = tui.terminal?.rows ?? 24;
             const planViewport = Math.max(4, rows - CHROME_LINES);
             const step = Math.max(3, Math.floor(planViewport / 2));

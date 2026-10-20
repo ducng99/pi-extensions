@@ -358,6 +358,53 @@ describe("plan extension tools", () => {
         expect(chosen!).toBe("Implement now — exit plan mode and continue working");
     });
 
+    test("createPlanPrompt scrolls a long plan with mouse wheel via handleMouse", () => {
+        const tui = { requestRender: () => {}, terminal: { rows: 40 } };
+        const longContent = Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n");
+        const comp = createPlanPrompt("long.md", longContent, {
+            tui: tui as never,
+            theme: fakeTheme,
+            done: () => {},
+        }) as unknown as {
+            render(w: number): string[];
+            handleMouse(event: { type: string; wheelDelta?: number }): { handled: boolean } | undefined;
+        };
+
+        // Initial render: top of the plan.
+        let lines = comp.render(80).join("\n");
+        expect(lines).toContain("line 0");
+        expect(lines).toContain("... ↓ 12 more");
+
+        // Fullscreen mode dispatches normalized wheel events via handleMouse.
+        // Wheel down scrolls the plan and is claimed so the chat transcript
+        // does not scroll instead (wheelDelta = 3 lines here).
+        expect(comp.handleMouse({ type: "wheel", wheelDelta: 3 })).toEqual({ handled: true });
+        lines = comp.render(80).join("\n");
+        expect(lines).not.toContain("line 0");
+        expect(lines).toContain("... ↑ 3 more");
+        expect(lines).toContain("... ↓ 9 more");
+
+        // Wheel up scrolls back.
+        comp.handleMouse({ type: "wheel", wheelDelta: -3 });
+        lines = comp.render(80).join("\n");
+        expect(lines).toContain("line 0");
+    });
+
+    test("createPlanPrompt with fully visible plan does not claim wheel events", () => {
+        const tui = { requestRender: () => {}, terminal: { rows: 40 } };
+        const comp = createPlanPrompt("short.md", "# Roadmap\n\nstep 1", {
+            tui: tui as never,
+            theme: fakeTheme,
+            done: () => {},
+        }) as unknown as {
+            render(w: number): string[];
+            handleMouse(event: { type: string; wheelDelta?: number }): { handled: boolean } | undefined;
+        };
+
+        comp.render(80);
+        expect(comp.handleMouse({ type: "wheel", wheelDelta: 3 })).toBeUndefined();
+    });
+
     test("createPlanPrompt fills the whole terminal with the plan preview", () => {
         const tui = { requestRender: () => {}, terminal: { rows: 40 } };
         const longContent = Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n");

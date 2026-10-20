@@ -1,5 +1,5 @@
 import { DynamicBorder, keyHint, rawKeyHint } from "@earendil-works/pi-coding-agent";
-import { Container, getKeybindings, Input, Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Container, getKeybindings, Input, Key, matchesKey, truncateToWidth, type TuiMouseEvent, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 // ============================================================================
 // Custom Permission Selector Component
@@ -102,18 +102,15 @@ const FIXED_PANEL_LINES = 9;
 /** Rows reserved for overlay margins and the scroll hint line. */
 const RESERVED_ROWS = 3;
 
-/** SGR mouse wheel sequence, e.g. `\x1b[<64;12;5M` (64 = wheel up, 65 = wheel down). */
-const ESC = String.fromCharCode(27);
-const SGR_WHEEL = new RegExp(`^${ESC}\\[<(\\d+);(\\d+);(\\d+)([Mm])$`);
-
 /**
  * Permission confirmation panel: a title (the command/message, scrollable when
  * too long), the question, the Yes/No options, and key hints.
  *
  * The panel is rendered flat (custom components are layout leaves), so the
- * title window is scrolled manually. Wheel events, PageUp/PageDown and
- * Home/End only reach the component when it is shown as a focused overlay —
- * render it with `ui.custom(..., { overlay: true })`.
+ * title window is scrolled manually: mouse wheel via `handleMouse` (pi's TUI
+ * parses raw wheel sequences and dispatches normalized events), PageUp/PageDown
+ * and Home/End via `handleInput` when the component is shown as a focused
+ * overlay — render it with `ui.custom(..., { overlay: true })`.
  */
 export class PermissionSelector extends Container {
     private selectedIndex = 0;
@@ -253,38 +250,37 @@ export class PermissionSelector extends Container {
         }
     }
 
-    /** Parse an SGR mouse-wheel sequence; returns the scroll direction or null. */
-    private parseWheel(data: string): number | null {
-        const match = SGR_WHEEL.exec(data);
-        if (match) {
-            const button = Number.parseInt(match[1]!, 10);
-            if ((button & 64) === 0) return null;
-            const direction = button & 3;
-            if (direction === 0) return -1;
-            if (direction === 1) return 1;
-            return null;
+    /**
+     * Mouse input from the TUI. In fullscreen mode pi's alt-screen parses raw
+     * wheel sequences itself and dispatches normalized wheel events here —
+     * they never arrive in `handleInput`. Without this override an unhandled
+     * wheel event falls through to the transcript ScrollView, scrolling the
+     * main conversation instead of the panel title.
+     */
+    override handleMouse(event: TuiMouseEvent) {
+        if (event.type === "wheel" && event.wheelDelta && this.wrappedTitle.length > this.windowHeight) {
+            this.scrollTitle(event.wheelDelta);
+            // Full dispatch result (Container narrows the override return
+            // type); mirrors what dispatchMouseEvent synthesizes for plain
+            // `handled` results.
+            return {
+                handled: true,
+                target: {
+                    component: this,
+                    originX: event.screenX - event.x,
+                    originY: event.screenY - event.y,
+                    width: event.width,
+                    height: event.height,
+                },
+            } as ReturnType<NonNullable<Container["handleMouse"]>>;
         }
-        // Legacy X10 wheel sequences: `\x1b[M` + button (64 = up, 65 = down).
-        if (data.length === 6 && data.startsWith("\x1b[M")) {
-            const button = data.charCodeAt(3) - 32;
-            if ((button & 64) === 0) return null;
-            const direction = button & 3;
-            if (direction === 0) return -1;
-            if (direction === 1) return 1;
-        }
-        return null;
+        // Not a wheel event (or nothing to scroll): let the container forward
+        // the event to children; an undefined result lets the TUI route the
+        // wheel to the transcript.
+        return super.handleMouse(event);
     }
 
     handleInput(keyData: string) {
-        // Wheel scrolling (only delivered while shown as a focused overlay).
-        const wheelDelta = this.parseWheel(keyData);
-        if (wheelDelta !== null) {
-            if (this.wrappedTitle.length > this.windowHeight) {
-                this.scrollTitle(wheelDelta * 3);
-            }
-            return;
-        }
-
         // Page scrolling of the title window.
         if (matchesKey(keyData, Key.pageUp)) {
             this.scrollTitle(-this.windowHeight);
