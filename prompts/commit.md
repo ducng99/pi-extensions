@@ -22,14 +22,10 @@ if the change is small, less than 50 diff lines, keep the message single-line on
 
 if there are conflicts DO NOT FIX THEM. notify me and I will fix them
 
-## GIT DIFF
+## Context
 
-!`git diff`
+First, run these commands to see the current state:
 
-## GIT DIFF --cached
-
-!`git diff --cached`
-
-## GIT STATUS --short
-
-!`git status --short`
+- `git status --short`
+- `git diff`
+- `git diff --cached`
