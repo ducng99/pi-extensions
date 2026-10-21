@@ -70,13 +70,18 @@ Your output must be:
 </examples>`,
             messages: [{ role: "user", content: "Generate a title for the following prompt:\n\n" + prompt, timestamp: Date.now() }],
         }, {
-            temperature: 0.6,
             thinking: false,
             reasoningEffort: "none",
-            reasoning: "minimal",
+            reasoning: "off",
             thinkingEnabled: false,
             maxRetryDelayMs: 5000,
             timeoutMs: 10_000,
+            maxTokens: 32,
+            temperature: 0.7,
+            samplingParams: {
+                top_p: 0.8,
+                presence_penalty: 1.5,
+            },
         });
 
         const result = response.content.reduce((msg, cur) => {
