@@ -294,6 +294,12 @@ describe("checkPermission: default allowed tools", () => {
         expect(result.decision).toBe("allow");
     });
 
+    test("allows codemode by default with no rules", async () => {
+        const perms = makePerms({});
+        const result = await checkPermission("codemode", {}, perms);
+        expect(result.decision).toBe("allow");
+    });
+
     test("explicit deny still overrides default allowed", async () => {
         const perms = makePerms({ deny: [{ category: "ask_user_questions", pattern: "*" }] });
         const result = await checkPermission("ask_user_questions", {}, perms);

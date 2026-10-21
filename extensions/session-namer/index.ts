@@ -95,9 +95,10 @@ Your output must be:
 
 export default function sessionNamer(pi: ExtensionAPI) {
     pi.on("before_agent_start", async (event, ctx) => {
+        if (event.messageType !== "user") return;
         if (pi.getSessionName()) return;
 
-        const prompt = event.prompt?.trim();
+        const prompt = event.prompt.trim();
         if (!prompt) return;
 
         const notify = ctx.ui.notify;

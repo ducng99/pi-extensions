@@ -23,6 +23,7 @@ export const TOOL_CATEGORY: Record<string, string> = {
 export const DEFAULT_ALLOWED_TOOLS = new Set([
     "ask_user_questions",
     "subagent",
+    "codemode",
 ]);
 
 // ============================================================================
