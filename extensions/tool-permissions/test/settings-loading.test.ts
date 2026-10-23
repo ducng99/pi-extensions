@@ -213,7 +213,7 @@ describe("remote session settings", () => {
 
         await collectAllSettings(projectDir);
         await collectAllSettings(projectDir);
-        expect(exec.calls.filter((c) => c.startsWith("cat")).length).toBe(2);
+        expect(exec.calls.filter(c => c.startsWith("cat")).length).toBe(2);
     });
 
     test("cache is invalidated when the session changes", async () => {
@@ -228,7 +228,7 @@ describe("remote session settings", () => {
 
         setRemoteSession({ remoteCwd: "/srv/other", exec });
         await collectAllSettings(projectDir);
-        expect(exec.calls.filter((c) => c.startsWith("cat")).length).toBe(4);
+        expect(exec.calls.filter(c => c.startsWith("cat")).length).toBe(4);
     });
 
     test("missing remote settings files are tolerated", async () => {

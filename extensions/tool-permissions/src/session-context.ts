@@ -11,6 +11,8 @@
 
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
+import { getTouchedPaths } from "./patch-files";
+
 /** Bounded, compact view of the current session, fed to the classifier. */
 export interface ClassifierSessionContext {
     /** Current working directory. Always populated. */
@@ -84,9 +86,11 @@ function summarizeToolCall(name: string, args: Record<string, unknown>): string 
             break;
         case "edit":
         case "write":
-        case "patch":
         case "read":
             arg = typeof args.path === "string" ? args.path : "";
+            break;
+        case "patch":
+            arg = getTouchedPaths(name, args).join(", ");
             break;
         case "ls":
         case "find":
@@ -101,9 +105,16 @@ function summarizeToolCall(name: string, args: Record<string, unknown>): string 
     return `${name}: ${arg}`;
 }
 
+/** Extract touched file paths from a read/edit/write/patch toolCall. */
+function touchedFilePaths(name: string, args: Record<string, unknown>): string[] {
+    if (name === "patch") return getTouchedPaths(name, args);
+    const p = touchedFilePath(name, args);
+    return p ? [p] : [];
+}
+
 /** Extract a touched file path from a read/edit/write toolCall. */
 function touchedFilePath(name: string, args: Record<string, unknown>): string | null {
-    if (name === "edit" || name === "write" || name === "patch" || name === "read") {
+    if (name === "edit" || name === "write" || name === "read") {
         const fp = args.path;
         return typeof fp === "string" ? fp : null;
     }
@@ -186,9 +197,10 @@ export async function buildSessionContext(
 
                 recentToolCalls.unshift(summarizeToolCall(name, args));
 
-                const touched = touchedFilePath(name, args);
-                if (touched && !agentTouchedFiles.includes(touched)) {
-                    agentTouchedFiles.unshift(touched);
+                for (const touched of touchedFilePaths(name, args)) {
+                    if (!agentTouchedFiles.includes(touched)) {
+                        agentTouchedFiles.unshift(touched);
+                    }
                 }
             }
         }

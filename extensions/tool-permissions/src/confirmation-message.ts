@@ -1,18 +1,23 @@
 import { type Theme, truncateHead } from "@earendil-works/pi-coding-agent";
 
+import { getTouchedPaths } from "./patch-files";
+
 export function formatConfirmMessage(theme: Theme, toolName: string, input: Record<string, unknown>, cwd: string, reason?: string, hasUI?: boolean): string {
     const lines: string[] = [];
 
     switch (toolName) {
         case "edit":
         case "write":
-        case "patch":
         case "read": {
             const fp = input.path;
             if (typeof fp === "string") {
                 const verb = toolName === "read" ? "Read" : "Edit";
                 lines.push(`${verb} file: ${fp}`);
             }
+            break;
+        }
+        case "patch": {
+            for (const p of getTouchedPaths(toolName, input)) lines.push(`Edit file: ${p}`);
             break;
         }
         case "bash": {
