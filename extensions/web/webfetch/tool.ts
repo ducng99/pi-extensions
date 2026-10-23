@@ -100,7 +100,7 @@ Usage notes:
                             "Authorization": `Bearer ${apiKey}`,
                         },
                         body: JSON.stringify({
-                            model: "firecrawl",
+                            model: "fetch-combo",
                             url: params.url,
                             format: "markdown",
                             max_characters: 0,
