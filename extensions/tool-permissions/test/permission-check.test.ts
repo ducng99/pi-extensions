@@ -1065,10 +1065,26 @@ describe("checkPermission: MCP tools (mcp__<server>__<tool>)", () => {
         expect((await checkPermission("mcp__github__list_prs", {}, perms)).decision).toBe("allow");
     });
 
-    test("dashes in server and tool names are matched literally (not normalised)", async () => {
+    test("dashes in rules match pi's underscore-normalized tool names", async () => {
+        // Pi replaces every character other than letters, digits, and `_` with
+        // `_`, so a server named `chrome-devtools` is invoked as
+        // `mcp__chrome_devtools__take_screenshot`, while Claude settings rules
+        // keep the dashed original name.
+        const perms = makePerms({ allow: [{ category: "mcp__chrome-devtools__take_screenshot", pattern: "*" }] });
+        expect((await checkPermission("mcp__chrome_devtools__take_screenshot", {}, perms)).decision).toBe("allow");
+        expect((await checkPermission("mcp__chrome_devtools__navigate_page", {}, perms)).decision).toBe("ask");
+    });
+
+    test("dashed server rule allows every tool of the normalized server", async () => {
         const perms = makePerms({ allow: [{ category: "mcp__hf-mcp-server", pattern: "*" }] });
-        expect((await checkPermission("mcp__hf-mcp-server__hub-repo-details", {}, perms)).decision).toBe("allow");
-        expect((await checkPermission("mcp__hf_mcp_server__hub_repo_details", {}, perms)).decision).toBe("ask");
+        expect((await checkPermission("mcp__hf_mcp_server__hub_repo_details", {}, perms)).decision).toBe("allow");
+        expect((await checkPermission("mcp__hf_mcp_server__hub_uploads", {}, perms)).decision).toBe("allow");
+    });
+
+    test("dashed tool-segment wildcard matches normalized names", async () => {
+        const perms = makePerms({ allow: [{ category: "mcp__chrome-devtools__get_*", pattern: "*" }] });
+        expect((await checkPermission("mcp__chrome_devtools__get_console_messages", {}, perms)).decision).toBe("allow");
+        expect((await checkPermission("mcp__chrome_devtools__take_snapshot", {}, perms)).decision).toBe("ask");
     });
 
     test("server wildcard rule (mcp__github__*) allows every tool on that server", async () => {
@@ -1102,6 +1118,12 @@ describe("checkPermission: MCP tools (mcp__<server>__<tool>)", () => {
     test("server name matching is literal (mcp__github does not match mcp__github_evil)", async () => {
         const perms = makePerms({ allow: [{ category: "mcp__github", pattern: "*" }] });
         expect((await checkPermission("mcp__github_evil__rustle", {}, perms)).decision).toBe("ask");
+    });
+
+    test("tool allow rule does not match a different tool with a similar normalized name", async () => {
+        const perms = makePerms({ allow: [{ category: "mcp__github__get_issue", pattern: "*" }] });
+        expect((await checkPermission("mcp__github__get_issue", {}, perms)).decision).toBe("allow");
+        expect((await checkPermission("mcp__github__get_issue_evil", {}, perms)).decision).toBe("ask");
     });
 
     test("deny rule takes priority over a broader allow rule", async () => {
