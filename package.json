@@ -13,7 +13,6 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "turndown": "^7.2.4",
     "web-tree-sitter": "^0.27.1"
   },
   "peerDependencies": {
@@ -28,7 +27,6 @@
     "@stylistic/eslint-plugin": "^5.10.0",
     "@types/bun": "^1.4.4",
     "@types/node": "^26.6.5",
-    "@types/turndown": "^5.0.6",
     "bun": "^1.4.4",
     "eslint": "^10.13.0",
     "eslint-plugin-simple-import-sort": "^14.0.0",

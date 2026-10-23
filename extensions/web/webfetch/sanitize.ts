@@ -32,7 +32,7 @@ export async function sanitizeWithPiSession(modelRegistry: ModelRegistry, conten
     if (prompt) {
         // const modelRuntime = await ModelRuntime.create();
 
-        const model = modelRegistry.find("aimachine", "fast");
+        const model = modelRegistry.find("aimachine", "moon");
         if (!model) throw new Error("Model not found");
 
         const builtPrompt = buildPrompt(content, prompt);
