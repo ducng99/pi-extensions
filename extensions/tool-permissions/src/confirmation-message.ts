@@ -6,6 +6,7 @@ export function formatConfirmMessage(theme: Theme, toolName: string, input: Reco
     switch (toolName) {
         case "edit":
         case "write":
+        case "patch":
         case "read": {
             const fp = input.path;
             if (typeof fp === "string") {

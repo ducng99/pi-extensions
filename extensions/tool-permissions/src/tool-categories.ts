@@ -5,6 +5,7 @@
 export const TOOL_CATEGORY: Record<string, string> = {
     edit: "edit",
     write: "edit",
+    patch: "edit",
     bash: "bash",
     read: "read",
     grep: "grep",

@@ -127,6 +127,7 @@ export function buildArgString(toolName: string, input: Record<string, unknown>)
     switch (toolName) {
         case "edit":
         case "write":
+        case "patch":
         case "read": {
             const fp = input.path;
             return typeof fp === "string" ? fp : "";
@@ -184,7 +185,7 @@ export function buildArgString(toolName: string, input: Record<string, unknown>)
 // ============================================================================
 
 /** Tools that operate on file paths */
-const FILE_PATH_TOOLS = new Set(["edit", "write", "read"]);
+const FILE_PATH_TOOLS = new Set(["edit", "write", "patch", "read"]);
 
 /**
  * Check if the tool is accessing a file outside cwd and all additional directories.

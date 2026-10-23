@@ -131,6 +131,7 @@ function toolDetail(name: string, args: Record<string, unknown>): string {
             return typeof args.command === "string" ? args.command : "";
         case "edit":
         case "write":
+        case "patch":
         case "read":
         case "ls":
         case "find":

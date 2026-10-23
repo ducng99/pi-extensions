@@ -21,6 +21,7 @@ export const PLAN_MODE_PERMISSIONS: ParsedPermissions = {
     deny: [
         { category: "edit", pattern: "*" },
         { category: "write", pattern: "*" },
+        { category: "patch", pattern: "*" },
         // Filesystem mutators
         { category: "bash", pattern: "rm *" },
         { category: "bash", pattern: "mv *" },
