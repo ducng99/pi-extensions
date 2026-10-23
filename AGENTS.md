@@ -11,8 +11,9 @@ Pi coding agent extension project containing extensions and shared utilities. Ex
 - `extensions/tool-permissions` — Intercepts tool calls and checks permissions against claude settings files
 - `extensions/ask-user-questions` — Custom TUI component for asking users multiple-choice questions
 - `extensions/subagent` — Spawns separate `pi` processes as specialized subagents with isolated context
-- `extensions/webfetch` — Fetches URLs, converts HTML→markdown via turndown, sanitizes through an isolated pi session
-- `extensions/websearch` — Web search via Ollama's API
+- `extensions/web` — Combined extension (entry `index.ts`) registering both tools:
+  - `webfetch/` — Fetches URLs, converts HTML→markdown via turndown, sanitizes through an isolated pi session
+  - `websearch/` — Web search via Ollama's API
 - `extensions/my-theme` — Custom theme with header, footer (cwd, git branch, context usage, model info), and arrow prompt editor component
 - `extensions/file-rollback` — Snapshots working directory state via a shadow git repo (`~/.pi/agent/file-rollback/<projectHash>/.git`), supports rolling back via `/tree`
 - `extensions/session-namer` — Auto-names sessions using a small dedicated model via a temporary isolated session

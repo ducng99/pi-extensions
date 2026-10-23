@@ -7,7 +7,7 @@
 import { type ExtensionAPI, truncateHead } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
-import { WebContentCache } from "../shared/web-content-cache/index";
+import { WebContentCache } from "../../shared/web-content-cache/index";
 import { WebSearchParams } from "./schema";
 import { webSearch, type WebSearchResponse } from "./search";
 

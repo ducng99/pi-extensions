@@ -8,7 +8,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
-import { WebContentCache } from "../shared/web-content-cache/index";
+import { WebContentCache } from "../../shared/web-content-cache/index";
 import { extractBody, isHtmlContentType } from "./html";
 import { htmlToMarkdown } from "./markdown";
 import { sanitizeWithPiSession } from "./sanitize";
