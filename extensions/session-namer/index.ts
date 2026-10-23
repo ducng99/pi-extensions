@@ -81,6 +81,7 @@ Your output must be:
             samplingParams: {
                 top_p: 0.8,
                 presence_penalty: 1.5,
+                chat_template_kwargs: { enable_thinking: false },
             },
         });
 
