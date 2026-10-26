@@ -1149,6 +1149,52 @@ describe("checkPermission: MCP tools (mcp__<server>__<tool>)", () => {
     });
 });
 
+describe("checkPermission: file-path rules match by basename", () => {
+    const parse = (deny: string[]) =>
+        parseClaudePerms(JSON.stringify({ permissions: { deny } }));
+
+    test("Read(.env) denies reading an absolute-path .env anywhere", async () => {
+        const merged = parse(["Read(.env)"]);
+        const result = await checkPermission(
+            "read",
+            { path: "~/personal/crawler/.env" },
+            merged,
+            "/home/tom/personal/crawler",
+        );
+        expect(result.decision).toBe("deny");
+    });
+
+    test("Read(.env) denies reading a cwd-relative .env", async () => {
+        const merged = parse(["Read(.env)"]);
+        const result = await checkPermission("read", { path: ".env" }, merged, "/tmp/proj");
+        expect(result.decision).toBe("deny");
+    });
+
+    test("Read(.env*.local) denies .env.production.local in a subdirectory", async () => {
+        const merged = parse(["Read(.env*.local)"]);
+        const result = await checkPermission("read", { path: "/tmp/proj/apps/web/.env.production.local" }, merged, "/tmp/proj");
+        expect(result.decision).toBe("deny");
+    });
+
+    test("Read(.env) does not deny unrelated files", async () => {
+        const merged = parse(["Read(.env)"]);
+        const result = await checkPermission("read", { path: "/tmp/proj/src/index.ts" }, merged, "/tmp/proj");
+        expect(result.decision).toBe("ask");
+    });
+
+    test("Read(.env) does not deny .env.example", async () => {
+        const merged = parse(["Read(.env)"]);
+        const result = await checkPermission("read", { path: "/tmp/proj/.env.example" }, merged, "/tmp/proj");
+        expect(result.decision).not.toBe("deny");
+    });
+
+    test("Read(src/**) still matches slash patterns against the full path", async () => {
+        const merged = parse(["Read(src/*)"]);
+        const result = await checkPermission("read", { path: "/tmp/proj/src/secret.ts" }, merged, "/tmp/proj");
+        expect(result.decision).toBe("deny");
+    });
+});
+
 describe("parseClaudePerms: MCP rules", () => {
     test("parses MCP permission entries into category + * pattern", () => {
         const config = JSON.stringify({
