@@ -316,7 +316,7 @@ export async function checkPermission(
     if (FILE_PATH_TOOLS.has(toolName)) {
         const filePath = input.path as string;
         if (typeof filePath === "string" && isSensitivePath(resolveArgPath(filePath, cwd), cwd)) {
-            return { decision: "ask", reason: "⚠ Accessing sensitive .pi/.claude/.mcp.json." };
+            return { decision: "ask", reason: "⚠ Accessing sensitive files/directories." };
         }
     }
 
@@ -592,7 +592,7 @@ async function checkBashPermission(
 
         // 3b. Sensitive path check: paths inside .pi/.claude must always ask.
         if (effectiveCwd && isCommandOnSensitivePath(leafCmd.args, leafCmd.argString, effectiveCwd, cwd)) {
-            return { decision: "ask", reason: "⚠ Accessing sensitive .pi/.claude/.mcp.json." };
+            return { decision: "ask", reason: "⚠ Accessing sensitive files/directories." };
         }
 
         // Complex leaves only get deny-rule checking (already done above); for
