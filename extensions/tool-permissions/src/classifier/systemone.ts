@@ -1,7 +1,6 @@
 import type { ClassifierApi, ClassifierChoiceAnswer, ClassifierModel, ClassifierResult, JsonValue } from "@earendil-works/pi-ai";
 import { type ModelRegistry, type SessionEntry } from "@earendil-works/pi-coding-agent";
 
-import { getTouchedPaths } from "../patch-files";
 import type { PermissionDecision } from "../permission-check";
 import type { ParsedPermissions } from "../permission-parsing";
 import type { ClassifierSessionContext } from "../session-context";
@@ -132,12 +131,11 @@ function toolDetail(name: string, args: Record<string, unknown>): string {
             return typeof args.command === "string" ? args.command : "";
         case "edit":
         case "write":
+        case "patch":
         case "read":
         case "ls":
         case "find":
             return typeof args.path === "string" ? args.path : "";
-        case "patch":
-            return getTouchedPaths(name, args).join(", ");
         case "grep":
             return typeof args.pattern === "string" ? String(args.pattern) : "";
         case "webfetch":

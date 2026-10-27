@@ -15,7 +15,6 @@
 // into claude settings — so a transient in-session decision does not survive
 // a restart.
 
-import { expandToolInput } from "./patch-files";
 import { buildArgString } from "./permission-check";
 
 export class SessionAllowlist {
@@ -30,20 +29,14 @@ export class SessionAllowlist {
         return `${toolName}:${buildArgString(toolName, input)}`;
     }
 
-    /** Per-file keys: a multi-file patch is allowed only if every file is. */
-    private keysFor(toolName: string, input: Record<string, unknown>): string[] {
-        return expandToolInput(toolName, input).map(i => this.keyFor(toolName, i));
-    }
-
     /** True when the (tool, input) pair was previously approved for the session. */
     allows(toolName: string, input: Record<string, unknown>): boolean {
-        const keys = this.keysFor(toolName, input);
-        return keys.length > 0 && keys.every(k => this.keys.has(k));
+        return this.keys.has(this.keyFor(toolName, input));
     }
 
     /** Remember the (tool, input) pair as approved for the rest of this session. */
     add(toolName: string, input: Record<string, unknown>): void {
-        for (const k of this.keysFor(toolName, input)) this.keys.add(k);
+        this.keys.add(this.keyFor(toolName, input));
     }
 
     /** Wipe the allowlist (currently unused; reserved for future commands). */

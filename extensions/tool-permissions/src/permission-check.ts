@@ -6,7 +6,6 @@ import { basename, isAbsolute, normalize, relative, resolve, sep } from "path";
 import { parseBashCommand } from "../../shared/bash-parser/index";
 import { matchPattern } from "../../shared/pattern-matching/index";
 import { classifyToolCall } from "./classifier";
-import { expandToolInput, getTouchedPaths } from "./patch-files";
 import type { ParsedPermissions } from "./permission-parsing";
 import type { ClassifierSessionContext } from "./session-context";
 import { DEFAULT_ALLOWED_BASH_COMMANDS, DEFAULT_ALLOWED_TOOLS, TOOL_CATEGORY } from "./tool-categories";
@@ -130,7 +129,6 @@ export function buildArgString(toolName: string, input: Record<string, unknown>)
         case "write":
         case "patch":
         case "read": {
-            if (toolName === "patch" && Array.isArray(input.files)) return getTouchedPaths(toolName, input).join("\n");
             const fp = input.path;
             return typeof fp === "string" ? fp : "";
         }
@@ -241,8 +239,6 @@ function filePathRuleMatches(pattern: string, argString: string, cwd: string): b
     if (matchPattern(pattern, argString)) return true;
     if (!argString) return false;
 
-    // Bare filename pattern: match against the basename of each line
-    // (buildArgString may return multiple newline-separated paths, e.g. patch).
     for (const line of argString.split("\n")) {
         if (!pattern.includes("/")) {
             const base = basename(line.replace(/[\\/]+$/, ""));
@@ -288,25 +284,6 @@ export async function checkPermission(
     sessionContextProvider?: SessionContextProvider,
     sessionEntriesProvider?: SessionEntriesProvider,
 ): Promise<PermissionDecision> {
-    // patch takes several files: check each one on its own and combine
-    // (deny > ask > allow).
-    if (toolName === "patch" && Array.isArray(input.files)) {
-        const parts = expandToolInput(toolName, input);
-        if (parts.length === 0) return { decision: "ask", reason: "patch call has no files" };
-        const results: PermissionDecision[] = [];
-        for (const part of parts) {
-            const r = await checkPermission(toolName, part, merged, cwd, isAutomodeOn, signal, sessionContextProvider, sessionEntriesProvider);
-            if (r.decision === "deny") return r;
-            results.push(r);
-        }
-        const asks = results.filter(r => r.decision === "ask");
-        if (asks.length > 0) {
-            const reasons = [...new Set(asks.map(r => r.reason).filter((r): r is string => !!r))];
-            return { decision: "ask", reason: reasons.length ? reasons.join("\n") : undefined };
-        }
-        return { decision: "allow" };
-    }
-
     if (toolName === "bash") {
         return await checkBashPermission(input, merged, cwd, isAutomodeOn, signal, sessionContextProvider, sessionEntriesProvider);
     }
