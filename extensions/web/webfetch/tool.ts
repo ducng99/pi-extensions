@@ -23,6 +23,23 @@ interface WebFetchDetails {
     title?: string;
 }
 
+/** Response shape from the Tom API `/v1/web/fetch` endpoint. */
+interface FetchResponse {
+    content?: string | { format?: string; text?: string };
+    title?: string | null;
+    url?: string;
+}
+
+/**
+ * Extract the markdown text from the API's `content` field, which is an
+ * object (`{ format, text, length }`) but may be a plain string for other
+ * providers/formats.
+ */
+function extractContentText(content: FetchResponse["content"]): string {
+    if (typeof content === "string") return content;
+    return content?.text ?? "";
+}
+
 export default function webfetchTool(pi: ExtensionAPI) {
     const cache = new WebContentCache();
     pi.registerTool<typeof WebFetchParams, WebFetchDetails>({
@@ -117,9 +134,9 @@ Usage notes:
                         };
                     }
 
-                    const data = await response.json() as { content?: string; title?: string; url?: string };
-                    markdown = data.content ?? "";
-                    title = data.title;
+                    const data = await response.json() as unknown as FetchResponse;
+                    markdown = extractContentText(data.content);
+                    title = data.title ?? undefined;
                     finalUrl = data.url ?? params.url;
                     status = response.status;
                     fromCache = false;
