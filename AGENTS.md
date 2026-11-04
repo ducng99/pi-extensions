@@ -12,7 +12,7 @@ Pi coding agent extension project containing extensions and shared utilities. Ex
 - `extensions/ask-user-questions` — Custom TUI component for asking users multiple-choice questions
 - `extensions/subagent` — Spawns separate `pi` processes as specialized subagents with isolated context
 - `extensions/web` — Combined extension (entry `index.ts`) registering both tools:
-  - `webfetch/` — Fetches URLs, fetches via the Tom API (`TOM_API_URL`/`TOM_API_KEY`), sanitizes through an isolated pi session
+  - `webfetch/` — Fetches URLs via Firecrawl `/v2/scrape` (`TOM_FIRECRAWL_API_KEY`, optional `TOM_FIRECRAWL_API_URL`) with direct fetch; an optional `prompt` is answered by Firecrawl's `question` format
   - `websearch/` — Web search via Ollama's API
 - `extensions/my-theme` — Custom theme with header, footer (cwd, git branch, context usage, model info), and arrow prompt editor component
 - `extensions/file-rollback` — Snapshots working directory state via a shadow git repo (`~/.pi/agent/file-rollback/<projectHash>/.git`), supports rolling back via `/tree`

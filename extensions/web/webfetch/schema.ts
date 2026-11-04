@@ -14,7 +14,7 @@ export const WebFetchParams = Type.Object({
     ),
     prompt: Type.Optional(
         Type.String({
-            description: "Optional prompt to extract specific information from the fetched content. If not provided, the raw content is returned without sanitization.",
+            description: "Optional question to ask about the fetched content. If provided, the answer is returned instead of the raw content.",
         }),
     ),
 });

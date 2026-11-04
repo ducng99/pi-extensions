@@ -1,15 +1,15 @@
 /**
  * Webfetch Tool
  *
- * Fetches a URL via the Tom API (`$TOM_API_URL/v1/web/fetch`),
- * and sanitizes the content via an isolated pi session.
+ * Fetches a URL via the Firecrawl `/v2/scrape` endpoint.
+ * Content sanitization and HTML→markdown conversion are handled by Firecrawl.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
 import { WebContentCache } from "../../shared/web-content-cache/index";
-import { sanitizeWithPiSession } from "./sanitize";
+import { FirecrawlError, scrapeUrl } from "./firecrawl";
 import { WebFetchParams } from "./schema";
 
 const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
@@ -23,23 +23,6 @@ interface WebFetchDetails {
     title?: string;
 }
 
-/** Response shape from the Tom API `/v1/web/fetch` endpoint. */
-interface FetchResponse {
-    content?: string | { format?: string; text?: string };
-    title?: string | null;
-    url?: string;
-}
-
-/**
- * Extract the markdown text from the API's `content` field, which is an
- * object (`{ format, text, length }`) but may be a plain string for other
- * providers/formats.
- */
-function extractContentText(content: FetchResponse["content"]): string {
-    if (typeof content === "string") return content;
-    return content?.text ?? "";
-}
-
 export default function webfetchTool(pi: ExtensionAPI) {
     const cache = new WebContentCache();
     pi.registerTool<typeof WebFetchParams, WebFetchDetails>({
@@ -50,11 +33,11 @@ export default function webfetchTool(pi: ExtensionAPI) {
 IMPORTANT: webfetch WILL FAIL for authenticated URLs. Before using this tool, check if the URL points to an authenticated service (e.g. Google Docs, Confluence, Jira, GitHub). If so, look for a specialized MCP tool that provides
 authenticated access.
 
-- Fetches content from a specified URL and processes it using an AI model
-- Takes a URL and a prompt as input
-- Fetches the URL content, converts HTML to markdown
-- Processes the content with the prompt using a small, fast model
-- Returns the model's response about the content
+- Fetches content from a specified URL and returns it as markdown
+- Takes a URL and an optional prompt as input
+- Converts HTML to markdown and sanitizes the content server-side via Firecrawl
+- If a prompt is provided, it is answered as a natural-language question about the page and the answer is returned
+- Otherwise the raw page markdown is returned
 - Use this tool when you need to retrieve and analyze web content
 
 Usage notes:
@@ -70,30 +53,29 @@ Usage notes:
         ],
         parameters: WebFetchParams,
 
-        async execute(_toolCallId, params, signal, _, ctx) {
+        async execute(_toolCallId, params, signal) {
             const timeoutMs = params.timeoutMs && params.timeoutMs > DEFAULT_FETCH_TIMEOUT_MS ? params.timeoutMs : DEFAULT_FETCH_TIMEOUT_MS;
 
-            // Pass 1: obtain the markdown. A cache hit (e.g. from websearch)
-            // gives us the already-converted markdown directly; otherwise we
-            // fetch the URL and convert HTML→markdown.
-            let markdown: string;
+            let text: string;
             let title: string | undefined;
             let finalUrl = params.url;
             let status: number;
             let fromCache: boolean;
 
-            const cachedMarkdown = await cache.get(params.url);
+            // A prompt needs a fresh scrape with the question format, so the
+            // cache is only consulted for plain fetches.
+            const cachedMarkdown = params.prompt === undefined ? await cache.get(params.url) : undefined;
             if (cachedMarkdown !== undefined) {
-                markdown = cachedMarkdown;
+                text = cachedMarkdown;
                 status = 200;
                 fromCache = true;
             }
             else {
-                const apiUrl = process.env.TOM_API_URL;
-                const apiKey = process.env.TOM_API_KEY;
-                if (!apiUrl || !apiKey) {
+                const apiUrl = process.env.TOM_FIRECRAWL_API_URL ?? "https://api.firecrawl.dev";
+                const apiKey = process.env.TOM_FIRECRAWL_API_KEY;
+                if (!apiKey) {
                     return {
-                        content: [{ type: "text" as const, text: "webfetch requires TOM_API_URL and TOM_API_KEY environment variables." }],
+                        content: [{ type: "text" as const, text: "webfetch requires the TOM_FIRECRAWL_API_KEY environment variable." }],
                         details: { url: params.url, ok: false, cached: false },
                         isError: true,
                     };
@@ -109,43 +91,19 @@ Usage notes:
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 try {
-                    const response = await fetch(`${apiUrl.replace(/\/+$/, "")}/v1/web/fetch`, {
-                        method: "POST",
-                        signal: controller.signal,
-                        headers: {
-                            "Content-Type": "application/json",
-                            "Authorization": `Bearer ${apiKey}`,
-                        },
-                        body: JSON.stringify({
-                            model: "fetch-combo",
-                            url: params.url,
-                            format: "markdown",
-                            max_characters: 0,
-                        }),
-                    });
-
-                    if (!response.ok) {
-                        const body = await response.text();
-                        const bodyText = body.length > 0 ? `\n${body}` : "";
-                        return {
-                            content: [{ type: "text" as const, text: `Failed to fetch ${params.url} (${response.status} ${response.statusText}):${bodyText}` }],
-                            details: { url: params.url, status: response.status, ok: false, cached: false },
-                            isError: true,
-                        };
-                    }
-
-                    const data = await response.json() as unknown as FetchResponse;
-                    markdown = extractContentText(data.content);
-                    title = data.title ?? undefined;
-                    finalUrl = data.url ?? params.url;
-                    status = response.status;
+                    const result = await scrapeUrl(apiUrl, apiKey, params.url, params.prompt, controller.signal);
+                    text = result.answer ?? result.markdown;
+                    title = result.title;
+                    finalUrl = result.url ?? params.url;
+                    status = result.status;
                     fromCache = false;
-                    // Cache the fetched content for later requests to the same URL.
-                    await cache.set(params.url, markdown);
+                    // Cache the markdown so later plain fetches of the same URL skip the network.
+                    await cache.set(params.url, result.markdown);
                 }
                 catch (err) {
                     const message = err instanceof Error ? err.message : String(err);
                     const aborted = controller.signal.aborted;
+                    const errStatus = err instanceof FirecrawlError ? err.status : undefined;
                     return {
                         content: [
                             {
@@ -155,7 +113,7 @@ Usage notes:
                                     : `Failed to fetch ${params.url}: ${message}`,
                             },
                         ],
-                        details: { url: params.url, ok: false, cached: false },
+                        details: { url: params.url, status: errStatus, ok: false, cached: false },
                         isError: true,
                     };
                 }
@@ -165,40 +123,16 @@ Usage notes:
                 }
             }
 
-            // Pass 2: sanitize via pi session (single path for cache + network).
-            try {
-                const result = await sanitizeWithPiSession(ctx.modelRegistry, markdown, params.prompt, { signal });
-                return {
-                    content: [{ type: "text" as const, text: result }],
-                    details: {
-                        url: finalUrl,
-                        title,
-                        status,
-                        ok: true,
-                        cached: fromCache,
-                    },
-                };
-            }
-            catch (err) {
-                const message = err instanceof Error ? err.message : String(err);
-                return {
-                    content: [
-                        {
-                            type: "text" as const,
-                            text: fromCache
-                                ? `Failed to process cached content for ${params.url}: ${message}`
-                                : `Failed to sanitize content for ${params.url}: ${message}`,
-                        },
-                    ],
-                    details: {
-                        url: params.url,
-                        status,
-                        ok: false,
-                        cached: fromCache,
-                    },
-                    isError: true,
-                };
-            }
+            return {
+                content: [{ type: "text" as const, text }],
+                details: {
+                    url: finalUrl,
+                    title,
+                    status,
+                    ok: true,
+                    cached: fromCache,
+                },
+            };
         },
 
         renderCall(args, theme) {
