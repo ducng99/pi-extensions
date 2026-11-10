@@ -13,7 +13,7 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "web-tree-sitter": "^0.27.1"
+    "web-tree-sitter": "^0.27.2"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
@@ -30,7 +30,7 @@
     "eslint": "^10.14.0",
     "eslint-plugin-simple-import-sort": "^14.0.0",
     "globals": "^17.14.0",
-    "typescript-eslint": "^8.72.1",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.2"
   }
 }
