@@ -225,6 +225,15 @@ export const REASON_BASH_COMPLEX = "Command uses complex structures";
 export const REASON_AUTO_MODE_DENIED = "Tool call is denied by auto mode classifier";
 
 /**
+ * The active fallback mode for tool calls that no explicit rule resolves:
+ * - `"auto"` — consult the classifier (default for unresolved "ask" decisions)
+ * - `"allow"` — default to allow (out-of-bounds and sensitive-path asks still
+ *   apply; they are enforced before this fallback)
+ * - `"off"` — default to ask
+ */
+export type PermissionMode = "auto" | "allow" | "off";
+
+/**
  * Match a file-path rule pattern (read/edit/glob/patch categories) against a
  * tool call's path argument.
  *
@@ -279,13 +288,13 @@ export async function checkPermission(
     input: Record<string, unknown>,
     merged: ParsedPermissions,
     cwd: string = process.cwd(),
-    isAutomodeOn?: () => boolean,
+    getMode?: () => PermissionMode,
     signal?: AbortSignal,
     sessionContextProvider?: SessionContextProvider,
     sessionEntriesProvider?: SessionEntriesProvider,
 ): Promise<PermissionDecision> {
     if (toolName === "bash") {
-        return await checkBashPermission(input, merged, cwd, isAutomodeOn, signal, sessionContextProvider, sessionEntriesProvider);
+        return await checkBashPermission(input, merged, cwd, getMode, signal, sessionContextProvider, sessionEntriesProvider);
     }
 
     // read/edit/write on .pi/.claude is always asked — these files control
@@ -303,23 +312,17 @@ export async function checkPermission(
     if (isMcpTool(toolName)) {
         const mcpDecision = checkMcpPermission(toolName, merged);
         // Explicit deny/ask rules take priority; only unresolved MCP calls
-        // (no matching rule) fall through to the classifier in automode.
+        // (no matching rule) fall through to the mode fallback in automode/allow mode.
         if (mcpDecision === null) {
-            if (isAutomodeOn?.()) {
-                const classified = await classifyToolCall(
+            return await resolveModeFallback(toolName, input, getMode?.() ?? "off", signal, async () =>
+                classifyToolCall(
                     toolName,
                     input,
                     signal,
                     sessionContextProvider ? await sessionContextProvider() : undefined,
                     sessionEntriesProvider?.(),
                     merged,
-                );
-                if (classified.decision === "deny") {
-                    return { decision: "deny", reason: REASON_AUTO_MODE_DENIED, notify: classified.reason };
-                }
-                return classified;
-            }
-            return { decision: "ask" };
+                ));
         }
         return mcpDecision;
     }
@@ -358,25 +361,52 @@ export async function checkPermission(
         return { decision: "allow" };
     }
 
-    // 5. Fallback classifier for unresolved tool calls in automode.
+    // 5. Mode fallback for unresolved tool calls in automode/allow mode.
     // Explicit deny/ask rules and out-of-bounds asks above have higher priority.
-    if (isAutomodeOn?.()) {
-        const classified = await classifyToolCall(
-            toolName,
-            input,
-            signal,
-            sessionContextProvider ? await sessionContextProvider() : undefined,
-            sessionEntriesProvider?.(),
-            merged,
-        );
-        if (classified.decision === "deny") {
-            return { decision: "deny", reason: REASON_AUTO_MODE_DENIED, notify: classified.reason };
-        }
-        return classified;
+    const mode = getMode?.() ?? "off";
+    if (mode !== "off") {
+        return await resolveModeFallback(toolName, input, mode, signal, async () =>
+            classifyToolCall(
+                toolName,
+                input,
+                signal,
+                sessionContextProvider ? await sessionContextProvider() : undefined,
+                sessionEntriesProvider?.(),
+                merged,
+            ));
     }
 
     // 6. Default: ask
     return { decision: "ask" };
+}
+
+/**
+ * Resolve an unresolved tool call according to the active mode:
+ * - `"auto"` — consult the classifier; a deny verdict blocks the call with a
+ *   fixed, user-facing reason while the classifier's own reason (with its
+ *   score) is surfaced as a notification instead of the block message.
+ * - `"allow"` — default to allow (out-of-bounds and sensitive-path asks have
+ *   already been enforced by the caller before reaching this point).
+ * - `"off"` — ask the user.
+ *
+ * `classify` is a thunk so that in allow/off mode the classifier (and any
+ * lazily-built session context) is never invoked.
+ */
+async function resolveModeFallback(
+    toolName: string,
+    input: Record<string, unknown>,
+    mode: PermissionMode,
+    signal: AbortSignal | undefined,
+    classify: () => Promise<PermissionDecision>,
+): Promise<PermissionDecision> {
+    if (mode === "allow") return { decision: "allow" };
+    if (mode !== "auto") return { decision: "ask" };
+
+    const classified = await classify();
+    if (classified.decision === "deny") {
+        return { decision: "deny", reason: REASON_AUTO_MODE_DENIED, notify: classified.reason };
+    }
+    return classified;
 }
 
 // ============================================================================
@@ -488,7 +518,7 @@ async function checkBashPermission(
     input: Record<string, unknown>,
     merged: ParsedPermissions,
     cwd: string,
-    isAutomodeOn?: () => boolean,
+    getMode?: () => PermissionMode,
     signal?: AbortSignal,
     sessionContextProvider?: SessionContextProvider,
     sessionEntriesProvider?: SessionEntriesProvider,
@@ -620,19 +650,14 @@ async function checkBashPermission(
             category: "bash",
             reason: shouldAllow.reason,
         }).catch(() => {});
-        if (isAutomodeOn?.()) {
-            const classified = await classifyToolCall("bash", input, signal, await getSessionCtx(), sessionEntriesProvider?.(), merged);
-            // A deny verdict blocks the call with a fixed, user-facing reason;
-            // the classifier's own reason (with its score) is surfaced as a
-            // notification instead of the block message.
-            if (classified.decision === "deny") {
-                return { decision: "deny", reason: REASON_AUTO_MODE_DENIED, notify: classified.reason };
-            }
-            return classified;
+        const mode = getMode?.() ?? "off";
+        if (mode === "allow") return { decision: "allow" };
+        if (mode === "auto") {
+            return await resolveModeFallback("bash", input, mode, signal, async () =>
+                classifyToolCall("bash", input, signal, await getSessionCtx(), sessionEntriesProvider?.(), merged),
+            );
         }
-        else {
-            return { decision: "ask", reason: shouldAllow.reason };
-        }
+        return { decision: "ask", reason: shouldAllow.reason };
     }
 
     return { decision: "allow" };

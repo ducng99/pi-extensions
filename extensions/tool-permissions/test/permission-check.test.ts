@@ -788,7 +788,7 @@ describe("checkPermission: bash `time` handling", () => {
             { command: "time .venv/bin/python /tmp/script.py" },
             perms,
             cwd,
-            () => true,
+            () => "auto",
             undefined,
             async () => ({ cwd, gitRemote: undefined, gitStatus: undefined, recentToolCalls: [], agentTouchedFiles: [] }),
             () => [],
@@ -1277,7 +1277,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "curl https://example.com" },
             perms,
             undefined,
-            () => true,
+            () => "auto",
         );
         expect(result.decision).toBe("allow");
         expect(classifyMock).toHaveBeenCalledTimes(1);
@@ -1296,7 +1296,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "curl https://example.com" },
             perms,
             undefined,
-            () => true,
+            () => "auto",
         );
         expect(result).toEqual({ decision: "ask", reason });
         expect(classifyMock).toHaveBeenCalledTimes(1);
@@ -1313,7 +1313,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "curl https://example.com" },
             perms,
             undefined,
-            () => true,
+            () => "auto",
         );
         expect(result.decision).toBe("deny");
         expect(result.reason).toBe(REASON_AUTO_MODE_DENIED);
@@ -1334,7 +1334,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "curl https://example.com" },
             perms,
             undefined,
-            () => true,
+            () => "auto",
         );
         expect(result.decision).toBe("deny");
         expect(classifyMock).not.toHaveBeenCalled();
@@ -1347,7 +1347,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "curl https://example.com" },
             perms,
             undefined,
-            () => true,
+            () => "auto",
         );
         expect(result.decision).toBe("ask");
         expect(classifyMock).not.toHaveBeenCalled();
@@ -1360,7 +1360,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "curl https://example.com" },
             perms,
             undefined,
-            () => true,
+            () => "auto",
         );
         expect(result.decision).toBe("allow");
         expect(classifyMock).not.toHaveBeenCalled();
@@ -1373,7 +1373,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "cat /etc/passwd" },
             perms,
             cwd,
-            () => true,
+            () => "auto",
         );
         expect(result.decision).toBe("ask");
         if (result.decision === "ask") {
@@ -1389,7 +1389,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "echo hello" },
             perms,
             undefined,
-            () => true,
+            () => "auto",
         );
         expect(result.decision).toBe("allow");
         expect(classifyMock).not.toHaveBeenCalled();
@@ -1402,7 +1402,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "cd /home/user/project/src" },
             perms,
             cwd,
-            () => true,
+            () => "auto",
         );
         expect(result.decision).toBe("allow");
         expect(classifyMock).not.toHaveBeenCalled();
@@ -1415,7 +1415,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "echo hello; curl https://example.com" },
             perms,
             undefined,
-            () => true,
+            () => "auto",
         );
         // `echo hello` resolves via default-allowed, but `curl` is unresolved, so
         // the classifier is consulted once with the WHOLE command string.
@@ -1432,7 +1432,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "curl https://example.com" },
             perms,
             undefined,
-            () => true,
+            () => "auto",
             controller.signal,
         );
         expect(classifyMock.mock.calls[0]![2]).toBe(controller.signal);
@@ -1449,7 +1449,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "echo $(curl https://example.com)" },
             perms,
             undefined,
-            () => true,
+            () => "auto",
         );
         expect(result).toEqual({ decision: "ask", reason });
         expect(classifyMock.mock.calls[0]![0]).toBe("bash");
@@ -1463,7 +1463,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "echo $(curl https://example.com)" },
             perms,
             undefined,
-            () => true,
+            () => "auto",
         );
         // Classifier says allow → fall through; `echo` is default-allowed.
         expect(result.decision).toBe("allow");
@@ -1478,7 +1478,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "cat <<EOF\nhello\nEOF" },
             perms,
             undefined,
-            () => true,
+            () => "auto",
         );
         // The complex heredoc command is classified once with the full raw
         // command string; `cat` is not default-allowed so classification
@@ -1495,7 +1495,7 @@ describe("checkPermission: automode classifier integration", () => {
             { command: "echo \"unterminated" },
             perms,
             undefined,
-            () => true,
+            () => "auto",
         );
         expect(result.decision).toBe("ask");
         if (result.decision === "ask") {
@@ -1512,5 +1512,123 @@ describe("checkPermission: automode classifier integration", () => {
             expect(result.reason).toStrictEqual(REASON_BASH_COMPLEX);
         }
         expect(classifyMock).not.toHaveBeenCalled();
+    });
+});
+
+describe("checkPermission: allow mode fallback", () => {
+    const cwd = "/home/user/project";
+
+    beforeEach(() => {
+        classifyMock.mockClear();
+        // Fail loudly if allow mode ever reaches the classifier.
+        classifyMock.mockImplementation(
+            async (): Promise<PermissionDecision> => {
+                throw new Error("classifier must not be consulted in allow mode");
+            },
+        );
+    });
+
+    test("allow mode: unresolved bash command defaults to allow", async () => {
+        const perms = makePerms({});
+        const result = await checkPermission("bash", { command: "curl https://example.com" }, perms, undefined, () => "allow");
+        expect(result.decision).toBe("allow");
+        expect(classifyMock).not.toHaveBeenCalled();
+    });
+
+    test("allow mode: unresolved sub-command in a chain defaults to allow", async () => {
+        const perms = makePerms({});
+        const result = await checkPermission(
+            "bash",
+            { command: "echo hello; curl https://example.com" },
+            perms,
+            undefined,
+            () => "allow",
+        );
+        expect(result.decision).toBe("allow");
+        expect(classifyMock).not.toHaveBeenCalled();
+    });
+
+    test("allow mode: complex command defaults to allow", async () => {
+        const perms = makePerms({});
+        const result = await checkPermission(
+            "bash",
+            { command: "echo $(curl https://example.com)" },
+            perms,
+            undefined,
+            () => "allow",
+        );
+        expect(result.decision).toBe("allow");
+        expect(classifyMock).not.toHaveBeenCalled();
+    });
+
+    test("allow mode: out-of-bounds command still asks", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat /etc/passwd" }, perms, cwd, () => "allow");
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("outside allowed directories");
+        }
+    });
+
+    test("allow mode: out-of-bounds cd still asks", async () => {
+        const perms = makePerms({});
+        const result = await checkPermission("bash", { command: "cd /etc" }, perms, cwd, () => "allow");
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("outside allowed directories");
+        }
+    });
+
+    test("allow mode: sensitive path still asks", async () => {
+        const perms = makePerms({});
+        const result = await checkPermission("bash", { command: "cat .pi/settings.json" }, perms, cwd, () => "allow");
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("allow mode: deny rule still denies", async () => {
+        const perms = makePerms({ deny: [{ category: "bash", pattern: "curl *" }] });
+        const result = await checkPermission("bash", { command: "curl https://example.com" }, perms, undefined, () => "allow");
+        expect(result.decision).toBe("deny");
+    });
+
+    test("allow mode: ask rule still asks", async () => {
+        const perms = makePerms({ ask: [{ category: "bash", pattern: "curl *" }] });
+        const result = await checkPermission("bash", { command: "curl https://example.com" }, perms, undefined, () => "allow");
+        expect(result.decision).toBe("ask");
+    });
+
+    test("allow mode: unresolved non-bash tool defaults to allow", async () => {
+        const perms = makePerms({});
+        const result = await checkPermission("unknown_tool", { foo: "bar" }, perms, undefined, () => "allow");
+        expect(result.decision).toBe("allow");
+        expect(classifyMock).not.toHaveBeenCalled();
+    });
+
+    test("allow mode: unresolved MCP tool defaults to allow", async () => {
+        const perms = makePerms({});
+        const result = await checkPermission("mcp__github__create_issue", {}, perms, undefined, () => "allow");
+        expect(result.decision).toBe("allow");
+        expect(classifyMock).not.toHaveBeenCalled();
+    });
+
+    test("allow mode: out-of-bounds file access via allow rule still asks", async () => {
+        const perms = makePerms({ allow: [{ category: "edit", pattern: "*" }] });
+        const result = await checkPermission("write", { path: "/etc/hosts" }, perms, cwd, () => "allow");
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("outside allowed directories");
+        }
+    });
+
+    test("allow mode: sensitive file access still asks", async () => {
+        const perms = makePerms({});
+        const result = await checkPermission("read", { path: ".claude/settings.json" }, perms, cwd, () => "allow");
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
     });
 });

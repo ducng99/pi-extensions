@@ -16,14 +16,14 @@
  * plan-mode deny rules take precedence over the user's own settings.
  */
 
-import type { ExtensionAPI, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 
 import { initParser } from "../shared/bash-parser/index";
 import { type PermissionResult, PermissionSelector, type PermissionSelectorOption } from "../shared/tui-components/index";
 import { loadClassifier } from "./src/classifier";
 import { setIntentFiles as setClassifierIntentFiles } from "./src/classifier/systemone";
 import { formatConfirmMessage } from "./src/confirmation-message";
-import { checkPermission } from "./src/permission-check";
+import { checkPermission, type PermissionMode } from "./src/permission-check";
 import type { ParsedPermissions } from "./src/permission-parsing";
 import { SessionAllowlist } from "./src/session-allowlist";
 import { buildSessionContext, type ExecFn } from "./src/session-context";
@@ -31,7 +31,22 @@ import { collectAllSettings, getRemoteSession, mergePermissions, setPlanModePerm
 
 let parserInitialized = false;
 let initPromise: Promise<void> | null = null;
-let automodeEnabled = true;
+let permissionMode: PermissionMode = "auto";
+
+/**
+ * Status text for the active permission mode: yellow for auto mode, red for
+ * allow mode, none when off.
+ */
+function modeStatusText(theme: Theme): string | undefined {
+    switch (permissionMode) {
+        case "auto":
+            return theme.fg("warning", "⏵⏵ auto mode on");
+        case "allow":
+            return theme.fg("error", "⏵⏵ allow mode on");
+        default:
+            return undefined;
+    }
+}
 
 async function ensureParserInitialized(): Promise<void> {
     if (parserInitialized) return;
@@ -88,12 +103,12 @@ export default function (pi: ExtensionAPI) {
         console.error("Failed to initialize tree-sitter parser:", err);
     });
 
-    // Show auto mode status indicator on session start
+    // Show permission mode status indicator on session start
     pi.on("session_start", (_, ctx) => {
-        if (automodeEnabled) {
+        if (permissionMode === "auto") {
             loadClassifier(ctx.modelRegistry).catch(() => {});
         }
-        ctx.ui.setStatus("STATUS_AUTOMODE_ENABLED", automodeEnabled ? ctx.ui.theme.fg("warning", "⏵⏵ auto mode on") : undefined);
+        ctx.ui.setStatus("STATUS_PERMISSION_MODE", modeStatusText(ctx.ui.theme));
     });
 
     pi.on("tool_call", async (event: ToolCallEvent, ctx): Promise<ToolCallEventResult | void> => {
@@ -132,7 +147,7 @@ export default function (pi: ExtensionAPI) {
             input,
             merged,
             boundaryCwd,
-            () => automodeEnabled,
+            () => permissionMode,
             ctx.signal,
             () => buildSessionContext(ctx.sessionManager.getEntries(), boundaryCwd, remote?.exec ?? pi.exec),
             () => ctx.sessionManager.getEntries(),
@@ -241,15 +256,15 @@ export default function (pi: ExtensionAPI) {
     });
 
     pi.registerCommand("automode", {
-        description: "Toggle auto mode for checking bash commands",
+        description: "Cycle permission mode (auto → allow → off)",
         async handler(_, ctx) {
             try {
-                automodeEnabled = !automodeEnabled;
-                if (automodeEnabled) {
+                permissionMode = permissionMode === "auto" ? "allow" : permissionMode === "allow" ? "off" : "auto";
+                if (permissionMode === "auto") {
                     await loadClassifier(ctx.modelRegistry);
                 }
 
-                ctx.ui.setStatus("STATUS_AUTOMODE_ENABLED", automodeEnabled ? ctx.ui.theme.fg("warning", "⏵⏵ auto mode on") : undefined);
+                ctx.ui.setStatus("STATUS_PERMISSION_MODE", modeStatusText(ctx.ui.theme));
             }
             catch (err) {
                 ctx.ui.notify(err instanceof Error ? err.message : String(err), "error");
