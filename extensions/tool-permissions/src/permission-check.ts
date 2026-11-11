@@ -72,13 +72,19 @@ function isInsideDir(resolvedPath: string, dir: string): boolean {
  * Check whether a resolved path is inside a sensitive project directory
  * (`<boundaryCwd>/.pi`, `<boundaryCwd>/.claude`, or `<boundaryCwd>/.mcp.json`). Accessing these paths via
  * read/edit/write can allow an agent to modify its own permission rules.
+ *
+ * The plan subdirectories (`<boundaryCwd>/.pi/plans` and
+ * `<boundaryCwd>/.claude/plans`) are exempt: they only hold the agent's own
+ * working notes, not permission rules, so they are not sensitive.
  */
 function isSensitivePath(resolvedPath: string, boundaryCwd: string): boolean {
     const sensitiveDirs = [".pi", ".claude"];
     const boundary = normalize(resolve(boundaryCwd));
     for (const dir of sensitiveDirs) {
         const sensitiveDir = normalize(resolve(boundary, dir));
-        if (isInsideDir(resolvedPath, sensitiveDir)) return true;
+        if (!isInsideDir(resolvedPath, sensitiveDir)) continue;
+        if (isInsideDir(resolvedPath, normalize(resolve(boundary, dir, "plans")))) continue;
+        return true;
     }
     return false;
 }
@@ -597,7 +603,9 @@ async function checkBashPermission(
             return { decision: "ask", reason: "⚠ Accessing outside allowed directories." };
         }
 
-        // 3b. Sensitive path check: paths inside .pi/.claude must always ask.
+        // 3b. Sensitive path check: paths inside .pi/.claude must always ask
+        // (the plans subdirectories are exempt — they hold only the agent's
+        // own notes, not permission rules).
         if (effectiveCwd && isCommandOnSensitivePath(leafCmd.args, leafCmd.argString, effectiveCwd, cwd)) {
             return { decision: "ask", reason: "⚠ Accessing sensitive files/directories." };
         }
@@ -693,7 +701,8 @@ function getCdTarget(args: string[], resolveCwd: string, boundaryCwd: string, ad
 
 /**
  * Check if any path in a single command points to a sensitive directory
- * (.pi, .claude, or .mcp.json under the boundary cwd).
+ * (.pi, .claude, or .mcp.json under the boundary cwd). The plans
+ * subdirectories (.pi/plans, .claude/plans) are exempt.
  */
 function isCommandOnSensitivePath(
     args: string[],

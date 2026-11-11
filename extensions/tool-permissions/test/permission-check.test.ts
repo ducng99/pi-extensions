@@ -194,11 +194,34 @@ describe("checkPermission: sensitive .pi/.claude paths", () => {
     });
 
     test("asks for read on nested path inside .pi", async () => {
-        const result = await checkPermission("read", { path: ".pi/plans/plan.md" }, makePerms({}), cwd);
+        const result = await checkPermission("read", { path: ".pi/agent/state.json" }, makePerms({}), cwd);
         expect(result.decision).toBe("ask");
         if (result.decision === "ask") {
             expect(result.reason).toContain("sensitive");
         }
+    });
+
+    test("asks plainly for read on a plans file with no rules (not sensitive)", async () => {
+        // Plans files are exempt from the sensitive-path check; the plain ask
+        // comes from the no-rule default, not the sensitive check.
+        const result = await checkPermission("read", { path: ".pi/plans/plan.md" }, makePerms({}), cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason ?? "").not.toContain("sensitive");
+        }
+    });
+
+    test("allows read on a plans file with allow rule", async () => {
+        const perms = makePerms({ allow: [{ category: "read", pattern: "*" }] });
+        const result = await checkPermission("read", { path: ".pi/plans/plan.md" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("allows write on a plans file with allow rule", async () => {
+        // write shares the "edit" rule category with edit/patch
+        const perms = makePerms({ allow: [{ category: "edit", pattern: "*" }] });
+        const result = await checkPermission("write", { path: ".claude/plans/my-feature.md" }, perms, cwd);
+        expect(result.decision).toBe("allow");
     });
 
     test("asks for read on nested path inside .claude", async () => {
@@ -549,7 +572,40 @@ describe("checkPermission: bash sensitive .pi/.claude paths", () => {
 
     test("asks for cat nested path inside .pi", async () => {
         const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat .pi/agent/state.json" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
+    test("allows cat on a plan file in .pi/plans", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
         const result = await checkPermission("bash", { command: "cat .pi/plans/plan.md" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("allows cat on a plan file in .claude/plans", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat .claude/plans/my-feature.md" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("allows cat on an absolute plan file path", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat /home/user/project/.pi/plans/plan.md" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("allows echo redirect into .pi/plans", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "echo *" }] });
+        const result = await checkPermission("bash", { command: "echo hello > .pi/plans/plan.md" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("asks for cat on a plans-sibling path (.pi/plansfoo)", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat .pi/plansfoo/settings.json" }, perms, cwd);
         expect(result.decision).toBe("ask");
         if (result.decision === "ask") {
             expect(result.reason).toContain("sensitive");
@@ -622,6 +678,21 @@ describe("checkPermission: bash sensitive .pi/.claude paths", () => {
         const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
         const result = await checkPermission("bash", { command: "cd .pi && cat settings.json" }, perms, cwd);
         expect(result.decision).toBe("ask");
+    });
+
+    test("allows cd into .pi/plans and cat a plan file", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cd .pi/plans && cat plan.md" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("asks for cat escaping .pi/plans after cd", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cd .pi/plans && cat ../settings.json" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
     });
 });
 
