@@ -15,21 +15,21 @@ function formatResults(data: WebSearchResponse): string {
     const lines = data.results.map((r, i) => {
         const title = r.title || "(no title)";
 
-        let content = r.snippet;
-        const truncatedContent = truncateHead(r.snippet, { maxLines: 40, maxBytes: 4096 });
-        if (truncatedContent.truncated) {
-            content = truncatedContent.content + " ...(truncated, fetch the URL using webfetch to get full content)";
+        let contentSection = "";
+        if (r.snippet.trim()) {
+            let content = r.snippet;
+            const truncatedContent = truncateHead(r.snippet, { maxLines: 40, maxBytes: 4096 });
+            if (truncatedContent.truncated) {
+                content = truncatedContent.content + " ...(truncated, fetch the URL using webfetch to get full content)";
+            }
+            contentSection = `\nContent:\n\`\`\`\n${content}\n\`\`\``;
         }
 
         return `
 ## Result ${i + 1}
 
 Title: ${title}
-URL: ${r.url}
-Content:
-\`\`\`
-${content}
-\`\`\`
+URL: ${r.url}${contentSection}
 `.trim();
     });
 
