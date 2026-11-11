@@ -87,6 +87,11 @@ export default function (pi: ExtensionAPI) {
 
     pi.registerTool({
         ...localEdit,
+        // createEditTool() wraps the definition via wrapToolDefinition(), which drops
+        // renderShell. Edit renders with renderShell: "self" (its renderers draw their own
+        // box and apply outputPad themselves); losing it makes the TUI wrap that output in
+        // another padded Box, adding an extra 1-space of padding around the tool.
+        renderShell: "self",
         async execute(id, params, signal, onUpdate, ctx) {
             const remote = getActiveRemote();
             if (!remote) return localEdit.execute(id, params, signal, onUpdate);
