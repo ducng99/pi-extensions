@@ -20,6 +20,7 @@ Pi coding agent extension project containing extensions and shared utilities. Ex
 - `extensions/plan` — `/plan [prompt]` plan mode: read-only session (read, bash allowlist, WritePlan/EditPlan) that writes a plan to `.pi/plans/<name>.md`, renders it, and prompts to implement (new session / same session) or update
 - `extensions/mcp` — MCP client: connects pi to external MCP servers (stdio + streamable HTTP) via the `@modelcontextprotocol/sdk`, exposing their tools/resources/prompts as pi tools, with full OAuth support
 - `extensions/remote` — `/remote connect <target> [path]` runs read/write/edit/bash/ls/find/grep on a remote machine over SSH (ControlMaster multiplexing where supported, plain connections on Windows, key auth); persists across resumes via `remote:session` entries, emits `remote:connected`/`remote:disconnected` so tool-permissions switches its path boundary, merges the remote project's claude settings, and runs its classifier git context remotely
+- `extensions/claude-md` — Adds `~/.claude/CLAUDE.md`, `~/.claude/CLAUDE.local.md` and `<cwd>/CLAUDE.local.md` to the system prompt context files, and sends nested `AGENTS.md`/`CLAUDE.md`/`CLAUDE.local.md` files as a message when the read tool reads a file under them
 - `extensions/shared/` — Reusable utilities:
   - `bash-parser` — Tree-sitter based bash command parser (requires WASM initialization via `initParser()`)
   - `tui-components` — Reusable TUI components (`PermissionSelector`, `InlineInput`, `NoInputInline`)
