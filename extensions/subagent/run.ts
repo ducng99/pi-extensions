@@ -411,6 +411,16 @@ export interface BackgroundTaskHandle extends BackgroundTaskInfo {
     done: Promise<{ exitCode: number }>;
 }
 
+function tryUnref(handle: unknown): void {
+    const h = handle as { unref?: () => void } | null | undefined;
+    try {
+        h?.unref?.();
+    }
+    catch {
+        /* ignore */
+    }
+}
+
 export async function runAgentInBackground(
     defaultCwd: string,
     agents: AgentConfig[],
@@ -418,6 +428,7 @@ export async function runAgentInBackground(
     task: string,
     cwd: string | undefined,
     modelOverride?: string,
+    handleExtensionUIRequest?: ExtensionUIRequestHandler,
 ): Promise<BackgroundTaskHandle | { error: string }> {
     const agent = agents.find(a => a.name === agentName);
     if (!agent) {
@@ -427,7 +438,12 @@ export async function runAgentInBackground(
 
     cleanupOldBackgroundTaskDirs();
 
-    const args: string[] = ["--mode", "json", "-p", "--no-session"];
+    // Background agents use RPC mode (not JSON mode) so permission prompts and
+    // other extension UI dialogs can be forwarded to the parent session's UI.
+    // In JSON mode `ctx.hasUI` is false, so ctx.ui.confirm() in the
+    // tool-permissions extension fails closed and denies the tool, ending the
+    // subagent's turn abruptly.
+    const args: string[] = ["--mode", "rpc", "--no-session"];
     const effectiveModel = modelOverride || agent.model;
     if (effectiveModel && effectiveModel !== "inherit") args.push("--model", effectiveModel);
 
@@ -460,27 +476,124 @@ export async function runAgentInBackground(
         const outputPath = path.join(bgDir, "stdout.jsonl");
         const errorPath = path.join(bgDir, "stderr.txt");
 
-        const outFd = fs.openSync(outputPath, "w");
-        const errFd = fs.openSync(errorPath, "w");
+        const outStream = fs.createWriteStream(outputPath, { flags: "w" });
+        const errStream = fs.createWriteStream(errorPath, { flags: "w" });
 
         const invocation = getPiInvocation(args);
         const proc = doSpawn(invocation.command, invocation.args, {
             cwd: cwd ?? defaultCwd,
             shell: false,
-            stdio: ["ignore", outFd, errFd],
+            stdio: ["pipe", "pipe", "pipe"],
             env,
             detached: true,
         });
+
+        const cleanupTempDirs = () => {
+            if (tmpPromptDir) {
+                try {
+                    fs.rmSync(tmpPromptDir, { recursive: true, force: true });
+                }
+                catch {
+                    /* ignore */
+                }
+            }
+            if (tmpPermissionsDir) {
+                try {
+                    fs.rmSync(tmpPermissionsDir, { recursive: true, force: true });
+                }
+                catch {
+                    /* ignore */
+                }
+            }
+        };
 
         let closeResolver: ((value: { exitCode: number }) => void) | null = null;
         const done = new Promise<{ exitCode: number }>((resolve) => {
             closeResolver = resolve;
         });
 
+        let stdinClosed = false;
+
+        const closeStdin = () => {
+            if (stdinClosed) return;
+            stdinClosed = true;
+            try {
+                proc.stdin?.end();
+            }
+            catch {
+                /* ignore */
+            }
+        };
+
+        let buffer = "";
+
+        const processLine = (line: string) => {
+            if (!line.trim()) return;
+
+            // Persist every event so the completion handler can parse the run.
+            outStream.write(line + "\n");
+
+            let event: Record<string, unknown>;
+            try {
+                event = JSON.parse(line) as Record<string, unknown>;
+            }
+            catch {
+                return;
+            }
+
+            if (event.type === "extension_ui_request" && handleExtensionUIRequest) {
+                const { id, ...request } = event;
+                if (typeof id === "string") {
+                    handleExtensionUIRequest(request)
+                        .then((response) => {
+                            try {
+                                proc.stdin?.write(JSON.stringify({ type: "extension_ui_response", id, ...response }) + "\n");
+                            }
+                            catch {
+                                /* stdin may be closed */
+                            }
+                        })
+                        .catch(() => {
+                            try {
+                                proc.stdin?.write(JSON.stringify({ type: "extension_ui_response", id, cancelled: true }) + "\n");
+                            }
+                            catch {
+                                /* stdin may be closed */
+                            }
+                        });
+                }
+                return;
+            }
+
+            if (event.type === "agent_settled") {
+                closeStdin();
+            }
+        };
+
+        // Send the task as a prompt command now that the child is in RPC mode.
+        try {
+            proc.stdin?.write(JSON.stringify({ type: "prompt", message: `Task: ${task}` }) + "\n");
+        }
+        catch {
+            /* stdin may be closed; error/close handlers below resolve */
+        }
+
+        proc.stdout?.on("data", (data) => {
+            buffer += data.toString();
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+            for (const line of lines) processLine(line);
+        });
+
+        proc.stderr?.on("data", (data) => {
+            errStream.write(data);
+        });
+
         proc.on("error", () => {
             try {
-                fs.closeSync(outFd);
-                fs.closeSync(errFd);
+                outStream.end();
+                errStream.end();
+                cleanupTempDirs();
                 fs.rmSync(bgDir, { recursive: true, force: true });
             }
             catch {
@@ -490,9 +603,13 @@ export async function runAgentInBackground(
         });
 
         proc.on("close", (code) => {
+            if (buffer.trim()) processLine(buffer);
+            buffer = "";
+            closeStdin();
             try {
-                fs.closeSync(outFd);
-                fs.closeSync(errFd);
+                outStream.end();
+                errStream.end();
+                cleanupTempDirs();
             }
             catch {
                 /* ignore */
@@ -500,7 +617,13 @@ export async function runAgentInBackground(
             closeResolver?.({ exitCode: code ?? 0 });
         });
 
-        proc.unref();
+        // Allow the parent process to exit while the background agent keeps
+        // running; its pipes close with the parent and RPC mode shuts down on
+        // stdin EOF.
+        tryUnref(proc.stdout);
+        tryUnref(proc.stderr);
+        tryUnref(proc.stdin);
+        tryUnref(proc);
 
         const info: BackgroundTaskHandle = {
             backgroundId,

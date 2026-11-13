@@ -46,7 +46,7 @@ const mockSpawn = mock((_command: string, _args: string[], _options: unknown) =>
     return proc;
 });
 
-const { runAgent, getBackgroundTaskInfo, listBackgroundTasks, setSpawnForTests } = await import("../run");
+const { runAgent, runAgentInBackground, getBackgroundTaskInfo, listBackgroundTasks, setSpawnForTests } = await import("../run");
 
 // Inject the mock spawner instead of mock.module("child_process"), which would
 // globally override the module and break sibling test files that use real spawn.
@@ -274,12 +274,80 @@ describe("runAgent", () => {
     });
 });
 
+describe("runAgentInBackground", () => {
+    beforeEach(() => {
+        mockSpawn.mockClear();
+    });
+
+    test("runs in RPC mode and sends the task as a prompt command", async () => {
+        let capturedStdin: MockWritable | null = null;
+        mockSpawn.mockImplementationOnce(() => {
+            const proc = new MockChildProcess();
+            capturedStdin = proc.stdin as MockWritable;
+            setTimeout(() => {
+                proc.stdout.emit("data", '{"type":"agent_settled"}\n');
+                proc.emit("close", 0);
+            }, 0);
+            return proc;
+        });
+
+        const bg = await runAgentInBackground("/tmp", agents, "Test", "say hello", undefined);
+        expect("error" in bg).toBe(false);
+
+        const call = mockSpawn.mock.calls[0];
+        if (!call) throw new Error("expected spawn call");
+        expect(call[1]).toContain("--mode");
+        expect(call[1][call[1].indexOf("--mode") + 1]).toBe("rpc");
+        expect(call[1]).not.toContain("--print");
+
+        const lines = (capturedStdin as unknown as MockWritable).chunks.join("").split("\n").filter(l => l.trim());
+        const promptLine = lines.map(l => JSON.parse(l) as { type?: string; message?: string }).find(p => p.type === "prompt");
+        expect(promptLine).toBeDefined();
+        expect(promptLine?.message).toContain("say hello");
+
+        if (!("error" in bg)) await bg.done;
+    });
+
+    test("forwards extension UI requests to the parent handler", async () => {
+        let capturedStdin: MockWritable | null = null;
+        mockSpawn.mockImplementationOnce(() => {
+            const proc = new MockChildProcess();
+            capturedStdin = proc.stdin as MockWritable;
+            setTimeout(() => {
+                proc.stdout.emit("data", '{"type":"extension_ui_request","id":"ui-1","method":"confirm","title":"Allow Read?"}\n');
+                setTimeout(() => {
+                    proc.stdout.emit("data", '{"type":"agent_settled"}\n');
+                    proc.emit("close", 0);
+                }, 10);
+            }, 0);
+            return proc;
+        });
+
+        const requests: Record<string, unknown>[] = [];
+        const bg = await runAgentInBackground("/tmp", agents, "Test", "task", undefined, undefined, async (request) => {
+            requests.push(request);
+            return { confirmed: true };
+        });
+        expect("error" in bg).toBe(false);
+        if ("error" in bg) return;
+
+        await bg.done;
+
+        expect(requests.length).toBe(1);
+        expect(requests[0]?.["method"]).toBe("confirm");
+
+        const lines = (capturedStdin as unknown as MockWritable).chunks.join("").split("\n").filter(l => l.trim());
+        const responseLine = lines.map(l => JSON.parse(l) as { type?: string; id?: string; confirmed?: boolean }).find(p => p.type === "extension_ui_response");
+        expect(responseLine).toMatchObject({ type: "extension_ui_response", id: "ui-1", confirmed: true });
+    });
+});
+
 describe("background task registry", () => {
     test("getBackgroundTaskInfo returns undefined for unknown id", () => {
         expect(getBackgroundTaskInfo("does-not-exist")).toBeUndefined();
     });
 
-    test("listBackgroundTasks returns empty array initially", () => {
-        expect(listBackgroundTasks()).toEqual([]);
+    test("listBackgroundTasks returns an array of registry entries", () => {
+        expect(Array.isArray(listBackgroundTasks())).toBe(true);
     });
 });

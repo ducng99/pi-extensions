@@ -202,7 +202,7 @@ paths, line numbers, what specifically to change.
             }
 
             if (params.runInBackground) {
-                const bg = await runAgentInBackground(ctx.cwd, agents, params.agent, params.task, undefined, params.model);
+                const bg = await runAgentInBackground(ctx.cwd, agents, params.agent, params.task, undefined, params.model, createExtensionUIHandler(ctx.ui));
                 if ("error" in bg) {
                     return {
                         content: [{ type: "text", text: bg.error }],
