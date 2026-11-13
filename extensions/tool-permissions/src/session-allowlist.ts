@@ -15,10 +15,22 @@
 // into claude settings — so a transient in-session decision does not survive
 // a restart.
 
+import { resolve } from "path";
+
 import { buildArgString } from "./permission-check";
+
+/**
+ * Normalize a path for allowlist comparisons. Out-of-bounds paths are already
+ * resolved and normalized by `resolveArgPath` before being recorded, so a
+ * plain resolve keeps comparisons stable.
+ */
+function normalizePath(path: string): string {
+    return resolve(path);
+}
 
 export class SessionAllowlist {
     private readonly keys = new Set<string>();
+    private readonly outOfBoundsPaths = new Set<string>();
 
     /**
      * Compose the allowlist key for a tool call. The same `buildArgString`
@@ -39,9 +51,24 @@ export class SessionAllowlist {
         this.keys.add(this.keyFor(toolName, input));
     }
 
+    /**
+     * Remember a resolved out-of-bounds path as approved for the rest of this
+     * session. Used for bash commands, where the exact command string is not a
+     * useful key, so the user approves the specific path instead.
+     */
+    addOutOfBoundsPath(path: string): void {
+        this.outOfBoundsPaths.add(normalizePath(path));
+    }
+
+    /** True when an out-of-bounds path was previously approved for the session. */
+    allowsOutOfBoundsPath(path: string): boolean {
+        return this.outOfBoundsPaths.has(normalizePath(path));
+    }
+
     /** Wipe the allowlist (currently unused; reserved for future commands). */
     clear(): void {
         this.keys.clear();
+        this.outOfBoundsPaths.clear();
     }
 
     /** Number of entries currently allowed. Useful for tests and diagnostics. */

@@ -16,7 +16,13 @@ import { stripWrapperCommands } from "./wrapper-strip";
  * Extract and validate the target directory of a `cd <path>` command.
  * Returns the resolved path if the cd is in-bounds, otherwise null.
  */
-function getCdTarget(args: string[], resolveCwd: string, boundaryCwd: string, additionalDirs: string[]): string | null {
+function getCdTarget(
+    args: string[],
+    resolveCwd: string,
+    boundaryCwd: string,
+    additionalDirs: string[],
+    isSessionAllowed?: (path: string) => boolean,
+): string | null {
     if (args.length < 1 || args[0] !== "cd") return null;
 
     let targetPath = "";
@@ -30,9 +36,9 @@ function getCdTarget(args: string[], resolveCwd: string, boundaryCwd: string, ad
     }
     if (!targetPath) return null;
 
-    if (isOutOfBoundsPath(targetPath, resolveCwd, boundaryCwd, additionalDirs)) return null;
     const resolved = resolveArgPath(targetPath, resolveCwd);
     if (isSensitivePath(resolved, boundaryCwd)) return null;
+    if (isOutOfBoundsPath(targetPath, resolveCwd, boundaryCwd, additionalDirs) && !isSessionAllowed?.(resolved)) return null;
     return resolved;
 }
 
@@ -59,26 +65,34 @@ function isCommandOnSensitivePath(
 }
 
 /**
- * Check if any path in a single command is outside the effective cwd and
- * additional directories.
+ * Find the first path in a single command that is outside the effective cwd
+ * and additional directories. Returns the resolved path, or null when every
+ * path is in-bounds.
  */
-function isCommandOutOfBounds(
+function findOutOfBoundsPath(
     args: string[],
     argString: string,
     resolveCwd: string,
     boundaryCwd: string,
     additionalDirs: string[],
-): boolean {
+    isSessionAllowed?: (path: string) => boolean,
+): string | null {
     for (const path of extractPathArgs(args)) {
         // Skip /dev/null (POSIX) and NUL (Windows) null devices — they are
         // not real filesystem paths and should never trigger out-of-bounds.
         if (path === "/dev/null" || /^nul:?$/i.test(path)) continue;
-        if (isOutOfBoundsPath(path, resolveCwd, boundaryCwd, additionalDirs)) return true;
+        const resolved = resolveArgPath(path, resolveCwd);
+        if (!isOutOfBoundsPath(path, resolveCwd, boundaryCwd, additionalDirs)) continue;
+        if (isSessionAllowed?.(resolved)) continue;
+        return resolved;
     }
     for (const path of extractRedirectionPaths(argString)) {
-        if (isOutOfBoundsPath(path, resolveCwd, boundaryCwd, additionalDirs)) return true;
+        const resolved = resolveArgPath(path, resolveCwd);
+        if (!isOutOfBoundsPath(path, resolveCwd, boundaryCwd, additionalDirs)) continue;
+        if (isSessionAllowed?.(resolved)) continue;
+        return resolved;
     }
-    return false;
+    return null;
 }
 
 /**
@@ -101,6 +115,7 @@ export async function checkBashPermission(
     signal?: AbortSignal,
     sessionContextProvider?: SessionContextProvider,
     sessionEntriesProvider?: SessionEntriesProvider,
+    isSessionAllowed?: (path: string) => boolean,
 ): Promise<PermissionDecision> {
     const cmd = input.command;
     if (typeof cmd !== "string") return { decision: "ask" };
@@ -168,8 +183,15 @@ export async function checkBashPermission(
 
         // 3. Out-of-bounds check for this command using the effective cwd to
         // resolve relative paths, but the original session cwd as the bound.
-        if (effectiveCwd && isCommandOutOfBounds(leafCmd.args, leafCmd.argString, effectiveCwd, cwd, additionalDirs)) {
-            return { decision: "ask", reason: "⚠ Accessing outside allowed directories." };
+        const outOfBoundsPath = effectiveCwd
+            ? findOutOfBoundsPath(leafCmd.args, leafCmd.argString, effectiveCwd, cwd, additionalDirs, isSessionAllowed)
+            : null;
+        if (outOfBoundsPath) {
+            return {
+                decision: "ask",
+                reason: `⚠ Accessing outside allowed directories: ${outOfBoundsPath}`,
+                outOfBoundsPath,
+            };
         }
 
         // 3b. Sensitive path check: paths inside .pi/.claude must always ask
@@ -188,7 +210,7 @@ export async function checkBashPermission(
 
         // 4a. `cd` auto-allow, and update the effective cwd for later commands.
         if (effectiveCwd) {
-            const cdTarget = getCdTarget(leafCmd.args, effectiveCwd, cwd, additionalDirs);
+            const cdTarget = getCdTarget(leafCmd.args, effectiveCwd, cwd, additionalDirs, isSessionAllowed);
             if (cdTarget) {
                 effectiveCwd = cdTarget;
                 continue;

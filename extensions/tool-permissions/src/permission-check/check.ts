@@ -6,7 +6,7 @@ import type { ParsedPermissions } from "../permission-parsing";
 import { DEFAULT_ALLOWED_TOOLS, TOOL_CATEGORY } from "../tool-categories";
 import { buildArgString } from "./arg-string";
 import { checkBashPermission } from "./bash-check";
-import { FILE_PATH_TOOLS, isOutOfBounds } from "./bounds";
+import { FILE_PATH_TOOLS, getOutOfBoundsPath } from "./bounds";
 import { checkMcpPermission, isMcpTool } from "./mcp";
 import { resolveModeFallback } from "./mode-fallback";
 import { isSensitivePath, resolveArgPath } from "./paths";
@@ -61,9 +61,10 @@ export async function checkPermission(
     signal?: AbortSignal,
     sessionContextProvider?: SessionContextProvider,
     sessionEntriesProvider?: SessionEntriesProvider,
+    isSessionAllowed?: (path: string) => boolean,
 ): Promise<PermissionDecision> {
     if (toolName === "bash") {
-        return await checkBashPermission(input, merged, cwd, getMode, signal, sessionContextProvider, sessionEntriesProvider);
+        return await checkBashPermission(input, merged, cwd, getMode, signal, sessionContextProvider, sessionEntriesProvider, isSessionAllowed);
     }
 
     // read/edit/write on .pi/.claude is always asked — these files control
@@ -118,8 +119,13 @@ export async function checkPermission(
     // 3. Allow — only if the target path is in-bounds
     for (const rule of merged.allow) {
         if (ruleMatches(rule)) {
-            if (cwd && isOutOfBounds(toolName, input, cwd, merged.additionalDirectories ?? [])) {
-                return { decision: "ask", reason: "⚠ Accessing outside allowed directories." };
+            const outOfBoundsPath = cwd ? getOutOfBoundsPath(toolName, input, cwd, merged.additionalDirectories ?? []) : null;
+            if (outOfBoundsPath && !isSessionAllowed?.(outOfBoundsPath)) {
+                return {
+                    decision: "ask",
+                    reason: `⚠ Accessing outside allowed directories: ${outOfBoundsPath}`,
+                    outOfBoundsPath,
+                };
             }
             return { decision: "allow" };
         }

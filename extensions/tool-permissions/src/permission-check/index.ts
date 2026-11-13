@@ -1,5 +1,5 @@
 export { buildArgString } from "./arg-string";
-export { isOutOfBounds } from "./bounds";
+export { getOutOfBoundsPath, isOutOfBounds } from "./bounds";
 export { checkPermission } from "./check";
 export { isMcpTool } from "./mcp";
 export type { PermissionDecision, PermissionMode } from "./types";

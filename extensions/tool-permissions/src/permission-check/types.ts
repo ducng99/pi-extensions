@@ -8,8 +8,17 @@ import type { ClassifierSessionContext } from "../session-context";
  * `decision` is the action to take. When the decision is `"ask"`, an optional
  * `reason` may explain *why* it is being asked (e.g. the bash command was too
  * complex to analyze or failed to parse).
+ *
+ * `outOfBoundsPath` is set when the ask was triggered by a file path outside
+ * the allowed boundary; the UI uses it to offer a session-scoped allow for
+ * exactly that path.
  */
-export type PermissionDecision = { decision: "allow" | "ask" | "deny"; reason?: string; notify?: string };
+export type PermissionDecision = {
+    decision: "allow" | "ask" | "deny";
+    reason?: string;
+    notify?: string;
+    outOfBoundsPath?: string;
+};
 
 /** Reason shown when a bash command could not be parsed by tree-sitter. */
 export const REASON_BASH_PARSE_ERROR = "Unable to parse the command";

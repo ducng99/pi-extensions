@@ -5,6 +5,25 @@ import { checkPermission } from "./check";
 import { makePerms } from "./test-helpers";
 
 describe("checkPermission: non-bash tools unchanged", () => {
+    test("out-of-bounds access names the checked path", async () => {
+        const perms = makePerms({ allow: [{ category: "read", pattern: "*" }] });
+        const result = await checkPermission("read", { path: "/etc/passwd" }, perms, "/home/user/project");
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toBe("⚠ Accessing outside allowed directories: /etc/passwd");
+            expect(result.outOfBoundsPath).toBe("/etc/passwd");
+        }
+    });
+
+    test("in-bounds access carries no out-of-bounds path", async () => {
+        const perms = makePerms({ allow: [{ category: "read", pattern: "*" }] });
+        const result = await checkPermission("read", { path: "src/main.ts" }, perms, "/home/user/project");
+        expect(result.decision).toBe("allow");
+        if (result.decision === "allow") {
+            expect(result.outOfBoundsPath).toBeUndefined();
+        }
+    });
+
     test("read tool still works normally", async () => {
         const perms = makePerms({ deny: [{ category: "read", pattern: ".env" }] });
         const result = await checkPermission("read", { path: ".env" }, perms);

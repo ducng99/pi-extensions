@@ -151,6 +151,7 @@ export default function (pi: ExtensionAPI) {
             ctx.signal,
             () => buildSessionContext(ctx.sessionManager.getEntries(), boundaryCwd, remote?.exec ?? pi.exec),
             () => ctx.sessionManager.getEntries(),
+            path => sessionAllowlist.allowsOutOfBoundsPath(path),
         );
 
         if (decision.decision === "deny") {
@@ -164,6 +165,8 @@ export default function (pi: ExtensionAPI) {
         }
 
         if (decision.decision === "ask") {
+            const outOfBoundsPath = decision.outOfBoundsPath;
+
             // Try the rich TUI custom component first. If custom() is not
             // supported (e.g. RPC mode used by subagents), fall back to the
             // simpler confirm() dialog which is forwarded to the parent session
@@ -172,19 +175,24 @@ export default function (pi: ExtensionAPI) {
                 const contextMsg = formatConfirmMessage(theme, toolName, input, boundaryCwd, decision.reason);
                 const question = `Allow ${toolName}?`;
                 const rows = tui.terminal.rows;
+                const allowSessionLabel = outOfBoundsPath
+                    ? `Yes, allow this session for ${outOfBoundsPath}`
+                    : "Yes, allow this session";
 
-                // Three-option layout (Yes / Yes, allow this session / No) for
-                // every non-bash tool. Bash is omitted because each command is
-                // independent — a session-wide "allow" for `bash` would be
-                // ambiguous and is left as the default two-option prompt.
-                const options: PermissionSelectorOption[] = toolName === "bash"
+                // Out-of-bounds asks always offer the session-scoped allow: for
+                // file tools it keys the exact tool+path pair, while for bash
+                // the approved path itself is remembered (a whole command
+                // string would be too coarse). Other bash asks stay two-option
+                // because a session-wide allow for `bash` would be ambiguous.
+                const sessionOptionAllowed = Boolean(outOfBoundsPath) || toolName !== "bash";
+                const options: PermissionSelectorOption[] = sessionOptionAllowed
                     ? [
                             { label: "Yes", kind: "allow" },
+                            { label: allowSessionLabel, kind: "allowSession" },
                             { label: "No", kind: "denyWithMessage" },
                         ]
                     : [
                             { label: "Yes", kind: "allow" },
-                            { label: "Yes, allow this session", kind: "allowSession" },
                             { label: "No", kind: "denyWithMessage" },
                         ];
 
@@ -207,7 +215,12 @@ export default function (pi: ExtensionAPI) {
                     if (customResult.allowSession) {
                         // Remember this tool/argument pair so subsequent matching
                         // calls in the same session skip the prompt entirely.
+                        // Out-of-bounds approvals are additionally scoped to the
+                        // checked path, which is what bash decisions re-check.
                         sessionAllowlist.add(toolName, input);
+                        if (outOfBoundsPath) {
+                            sessionAllowlist.addOutOfBoundsPath(outOfBoundsPath);
+                        }
                     }
                     return undefined;
                 }

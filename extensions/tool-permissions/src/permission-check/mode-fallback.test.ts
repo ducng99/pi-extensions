@@ -370,8 +370,52 @@ describe("checkPermission: allow mode fallback", () => {
         const result = await checkPermission("write", { path: "/etc/hosts" }, perms, cwd, () => "allow");
         expect(result.decision).toBe("ask");
         if (result.decision === "ask") {
-            expect(result.reason).toContain("outside allowed directories");
+            expect(result.reason).toBe("⚠ Accessing outside allowed directories: /etc/hosts");
+            expect(result.outOfBoundsPath).toBe("/etc/hosts");
         }
+    });
+
+    test("bash out-of-bounds ask names the checked path", async () => {
+        const perms = makePerms({});
+        const result = await checkPermission("bash", { command: "cd /home/tom/personal/alarme && ls" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toBe("⚠ Accessing outside allowed directories: /home/tom/personal/alarme");
+            expect(result.outOfBoundsPath).toBe("/home/tom/personal/alarme");
+        }
+    });
+
+    test("bash out-of-bounds path approved for the session no longer asks", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "ls *" }] });
+        const approved = new Set(["/home/tom/personal/alarme"]);
+        const result = await checkPermission(
+            "bash",
+            { command: "cd /home/tom/personal/alarme && ls" },
+            perms,
+            cwd,
+            () => "allow",
+            undefined,
+            undefined,
+            undefined,
+            path => approved.has(path),
+        );
+        expect(result.decision).toBe("allow");
+    });
+
+    test("file-tool out-of-bounds path approved for the session no longer asks", async () => {
+        const perms = makePerms({ allow: [{ category: "read", pattern: "*" }] });
+        const result = await checkPermission(
+            "read",
+            { path: "/etc/hosts" },
+            perms,
+            cwd,
+            () => "allow",
+            undefined,
+            undefined,
+            undefined,
+            path => path === "/etc/hosts",
+        );
+        expect(result.decision).toBe("allow");
     });
 
     test("allow mode: sensitive file access still asks", async () => {
