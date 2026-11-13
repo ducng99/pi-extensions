@@ -114,7 +114,7 @@ export async function checkBashPermission(
         return { decision: "ask", reason: REASON_BASH_PARSE_ERROR };
     }
 
-    // Wrapper keywords (`time`, `nohup`, `timeout`) execute their remainder,
+    // Wrapper keywords execute their remainder,
     // so evaluate the wrapped commands without them.
     const commands = parseResult.commands.flatMap(stripWrapperCommands);
     if (commands.length === 0) {

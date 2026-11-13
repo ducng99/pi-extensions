@@ -1,8 +1,7 @@
 import type { LeafCommand } from "../../../shared/bash-parser/index";
 
 /**
- * Result of stripping an executing wrapper keyword (`time`, `nohup`,
- * `timeout`) from a leaf command.
+ * Result of stripping an executing wrapper keyword from a leaf command.
  */
 type WrapperStripResult
     = | { kind: "unmodified" }
@@ -69,7 +68,7 @@ function timeoutHeaderLength(args: string[]): number | null {
 /**
  * Strip a single executing wrapper keyword from a leaf command.
  *
- * `time`, `nohup`, and `timeout` run the command that follows them, so the
+ * Wrapper keywords run the command that follows them, so the
  * wrapped command is what permission rules should match — the leaf is
  * evaluated without the wrapper. Bare wrappers that execute nothing (bare
  * `time`, `timeout --help`) are dropped entirely. Wrappers we cannot parse
@@ -96,6 +95,40 @@ function stripWrapperCommand(c: LeafCommand): WrapperStripResult {
         return { kind: "stripped", args: c.args.slice(1), argString };
     }
 
+    if (head === "setsid") {
+        if (c.args.length === 1 || c.args[1] === "--help" || c.args[1] === "--version") return { kind: "drop" };
+        // Options such as -f/-w/-c are not parsed - leave unmodified.
+        if (c.args[1]?.startsWith("-")) return { kind: "unmodified" };
+        const argString = argStringAfterTokens(c.argString, c.args, 1);
+        if (argString === null) return { kind: "unmodified" };
+        return { kind: "stripped", args: c.args.slice(1), argString };
+    }
+
+    if (head === "command") {
+        // Bare `command` runs nothing. `-v`/`-V` only look up the command name.
+        if (c.args.length === 1 || c.args[1] === "-v" || c.args[1] === "-V") return { kind: "drop" };
+        // `-p` only changes the PATH used for lookup. Other options are not parsed.
+        let skip = 1;
+        if (c.args[skip] === "-p") skip++;
+        if (c.args[skip] === "--") skip++;
+        if (skip >= c.args.length || c.args[skip]?.startsWith("-")) return { kind: "unmodified" };
+        const argString = argStringAfterTokens(c.argString, c.args, skip);
+        if (argString === null) return { kind: "unmodified" };
+        return { kind: "stripped", args: c.args.slice(skip), argString };
+    }
+
+    if (head === "exec") {
+        // Bare `exec` only applies redirections to the current shell - drop it.
+        if (c.args.length === 1) return { kind: "drop" };
+        // Options such as -a/-c/-l are not parsed - leave unmodified.
+        let skip = 1;
+        if (c.args[skip] === "--") skip++;
+        if (skip >= c.args.length || c.args[skip]?.startsWith("-")) return { kind: "unmodified" };
+        const argString = argStringAfterTokens(c.argString, c.args, skip);
+        if (argString === null) return { kind: "unmodified" };
+        return { kind: "stripped", args: c.args.slice(skip), argString };
+    }
+
     if (head === "timeout") {
         // `timeout --help`/`--version` alone runs no command — drop it.
         if (c.args.length === 2 && (c.args[1] === "--help" || c.args[1] === "--version")) return { kind: "drop" };
@@ -110,7 +143,7 @@ function stripWrapperCommand(c: LeafCommand): WrapperStripResult {
 }
 
 /**
- * Strip all executing wrapper keywords (`time`, `nohup`, `timeout`) from a
+ * Strip all executing wrapper keywords from a
  * leaf command, e.g. `nohup timeout 300 jq .` → `jq .`.
  */
 export function stripWrapperCommands(c: LeafCommand): LeafCommand[] {

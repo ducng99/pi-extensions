@@ -89,6 +89,28 @@ describe("checkPermission: bash `nohup`/`timeout` wrapper handling", () => {
         expect(result.decision).toBe("allow");
     });
 
+    test("allows `setsid nohup` wrapping an allow-listed command", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "jq *" }] });
+        const result = await checkPermission("bash", { command: "setsid nohup jq . data.json" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("allows `command` and `exec` wrapping an allow-listed command", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "jq *" }] });
+        for (const command of ["command jq . data.json", "command -p jq . data.json", "exec jq . data.json", "exec -- jq . data.json"]) {
+            const result = await checkPermission("bash", { command }, perms, cwd);
+            expect(result.decision).toBe("allow");
+        }
+    });
+
+    test("does not allow `command`/`exec` wrapping a command that is not allow-listed", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "jq *" }] });
+        for (const command of ["command rm -rf x", "exec rm -rf x", "exec -a foo jq ."]) {
+            const result = await checkPermission("bash", { command }, perms, cwd);
+            expect(result.decision).not.toBe("allow");
+        }
+    });
+
     test("allows stacked wrappers", async () => {
         const perms = makePerms({ allow: [{ category: "bash", pattern: "jq *" }] });
         const result = await checkPermission("bash", { command: "nohup timeout 300 jq . data.json" }, perms, cwd);
