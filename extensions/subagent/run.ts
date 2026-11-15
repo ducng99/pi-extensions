@@ -9,6 +9,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
+import { PERMISSION_PROXY_FLAG } from "../shared/permission-proxy/index";
 import type { AgentConfig, BackgroundTaskInfo, Message, SingleResult, UsageStats } from "./types";
 
 let doSpawn: typeof spawn = spawn;
@@ -22,8 +23,6 @@ let doSpawn: typeof spawn = spawn;
 export function setSpawnForTests(fn: typeof spawn): void {
     doSpawn = fn;
 }
-
-const SUBAGENT_PERMISSIONS_ENV_VAR = "PI_SUBAGENT_PERMISSIONS_FILE";
 
 // Background tasks are kept in a weak registry so we can clean up old temp
 // directories when the process stays alive long enough.
@@ -55,7 +54,7 @@ async function writePromptToTempFile(agentName: string, prompt: string): Promise
     return { dir: tmpDir, filePath };
 }
 
-function toolsToClaudeSettingsJson(
+export function toolsToClaudeSettingsJson(
     tools: string[] | undefined,
     disallowedTools: string[] | undefined,
 ): { permissions: { allow: string[]; ask: string[]; deny: string[] } } | null {
@@ -63,26 +62,6 @@ function toolsToClaudeSettingsJson(
     const deny = disallowedTools ?? [];
     if (allow.length === 0 && deny.length === 0) return null;
     return { permissions: { allow, ask: [], deny } };
-}
-
-async function writeAgentPermissionsTempFile(
-    agent: AgentConfig,
-): Promise<{ dir: string; filePath: string } | null> {
-    const settings = toolsToClaudeSettingsJson(agent.tools, agent.disallowedTools);
-    if (!settings) return null;
-
-    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-subagent-perms-"));
-    const safeName = agent.name.replace(/[^\w.-]+/g, "_");
-    const filePath = path.join(tmpDir, `permissions-${safeName}.json`);
-
-    await withFileMutationQueue(filePath, async () => {
-        await fs.promises.writeFile(filePath, JSON.stringify(settings, null, 2), {
-            encoding: "utf-8",
-            mode: 0o600,
-        });
-    });
-
-    return { dir: tmpDir, filePath };
 }
 
 export type OnUpdateCallback = (partial: {
@@ -96,6 +75,8 @@ export type OnUpdateCallback = (partial: {
  */
 export type ExtensionUIRequestHandler = (
     request: Record<string, unknown>,
+    agent: AgentConfig,
+    signal?: AbortSignal,
 ) => Promise<Record<string, unknown>>;
 
 export async function runAgent(
@@ -127,12 +108,11 @@ export async function runAgent(
         };
     }
 
-    const args: string[] = ["--mode", "rpc", "--no-session"];
+    const args: string[] = ["--mode", "rpc", "--no-session", `--${PERMISSION_PROXY_FLAG}`];
     const effectiveModel = modelOverride || agent.model;
     if (effectiveModel && effectiveModel !== "inherit") args.push("--model", effectiveModel);
 
     let tmpPromptDir: string | null = null;
-    let tmpPermissionsDir: string | null = null;
 
     const usage: UsageStats = {
         input: 0,
@@ -166,27 +146,12 @@ export async function runAgent(
     };
 
     const env: NodeJS.ProcessEnv = { ...process.env };
-    let cleanupPermissions: (() => void) | null = null;
 
     try {
         if (agent.systemPrompt.trim()) {
             const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt.trim());
             tmpPromptDir = tmp.dir;
             args.push("--append-system-prompt", tmp.filePath);
-        }
-
-        const perms = await writeAgentPermissionsTempFile(agent);
-        if (perms) {
-            tmpPermissionsDir = perms.dir;
-            env[SUBAGENT_PERMISSIONS_ENV_VAR] = perms.filePath;
-            cleanupPermissions = () => {
-                try {
-                    if (tmpPermissionsDir) fs.rmSync(tmpPermissionsDir, { recursive: true, force: true });
-                }
-                catch {
-                    /* ignore */
-                }
-            };
         }
 
         args.push(`Task: ${task}`);
@@ -241,7 +206,7 @@ export async function runAgent(
                 if (event.type === "extension_ui_request" && handleExtensionUIRequest) {
                     const { id, ...request } = event;
                     if (typeof id === "string") {
-                        handleExtensionUIRequest(request)
+                        handleExtensionUIRequest(request, agent, signal)
                             .then((response) => {
                                 try {
                                     const reply = JSON.stringify({ type: "extension_ui_response", id, ...response }) + "\n";
@@ -350,9 +315,6 @@ export async function runAgent(
                 /* ignore */
             }
         }
-        if (cleanupPermissions) {
-            cleanupPermissions();
-        }
     }
 }
 
@@ -443,7 +405,7 @@ export async function runAgentInBackground(
     // In JSON mode `ctx.hasUI` is false, so ctx.ui.confirm() in the
     // tool-permissions extension fails closed and denies the tool, ending the
     // subagent's turn abruptly.
-    const args: string[] = ["--mode", "rpc", "--no-session"];
+    const args: string[] = ["--mode", "rpc", "--no-session", `--${PERMISSION_PROXY_FLAG}`];
     const effectiveModel = modelOverride || agent.model;
     if (effectiveModel && effectiveModel !== "inherit") args.push("--model", effectiveModel);
 
@@ -451,8 +413,6 @@ export async function runAgentInBackground(
 
     let tmpPromptDir: string | null = null;
     let tmpPromptPath: string | null = null;
-    let tmpPermissionsDir: string | null = null;
-    let tmpPermissionsPath: string | null = null;
 
     try {
         if (agent.systemPrompt.trim()) {
@@ -460,13 +420,6 @@ export async function runAgentInBackground(
             tmpPromptDir = tmp.dir;
             tmpPromptPath = tmp.filePath;
             args.push("--append-system-prompt", tmpPromptPath);
-        }
-
-        const perms = await writeAgentPermissionsTempFile(agent);
-        if (perms) {
-            tmpPermissionsDir = perms.dir;
-            tmpPermissionsPath = perms.filePath;
-            env[SUBAGENT_PERMISSIONS_ENV_VAR] = tmpPermissionsPath;
         }
 
         args.push(`Task: ${task}`);
@@ -492,14 +445,6 @@ export async function runAgentInBackground(
             if (tmpPromptDir) {
                 try {
                     fs.rmSync(tmpPromptDir, { recursive: true, force: true });
-                }
-                catch {
-                    /* ignore */
-                }
-            }
-            if (tmpPermissionsDir) {
-                try {
-                    fs.rmSync(tmpPermissionsDir, { recursive: true, force: true });
                 }
                 catch {
                     /* ignore */
@@ -544,7 +489,7 @@ export async function runAgentInBackground(
             if (event.type === "extension_ui_request" && handleExtensionUIRequest) {
                 const { id, ...request } = event;
                 if (typeof id === "string") {
-                    handleExtensionUIRequest(request)
+                    handleExtensionUIRequest(request, agent)
                         .then((response) => {
                             try {
                                 proc.stdin?.write(JSON.stringify({ type: "extension_ui_response", id, ...response }) + "\n");
@@ -650,22 +595,6 @@ export async function runAgentInBackground(
         if (tmpPromptDir) {
             try {
                 fs.rmdirSync(tmpPromptDir);
-            }
-            catch {
-                /* ignore */
-            }
-        }
-        if (tmpPermissionsPath) {
-            try {
-                fs.unlinkSync(tmpPermissionsPath);
-            }
-            catch {
-                /* ignore */
-            }
-        }
-        if (tmpPermissionsDir) {
-            try {
-                fs.rmdirSync(tmpPermissionsDir);
             }
             catch {
                 /* ignore */

@@ -1,6 +1,6 @@
 import { parseBashCommand } from "../../../shared/bash-parser/index";
 import { matchPattern } from "../../../shared/pattern-matching/index";
-import { classifyToolCall } from "../classifier";
+import { classifyToolCall, type ContextFile } from "../classifier";
 import type { ParsedPermissions } from "../permission-parsing";
 import type { ClassifierSessionContext } from "../session-context";
 import { DEFAULT_ALLOWED_BASH_COMMANDS } from "../tool-categories";
@@ -116,6 +116,7 @@ export async function checkBashPermission(
     sessionContextProvider?: SessionContextProvider,
     sessionEntriesProvider?: SessionEntriesProvider,
     isSessionAllowed?: (path: string) => boolean,
+    intentFiles?: ContextFile[],
 ): Promise<PermissionDecision> {
     const cmd = input.command;
     if (typeof cmd !== "string") return { decision: "ask" };
@@ -253,7 +254,7 @@ export async function checkBashPermission(
         if (mode === "allow") return { decision: "allow" };
         if (mode === "auto") {
             return await resolveModeFallback("bash", input, mode, signal, async () =>
-                classifyToolCall("bash", input, signal, await getSessionCtx(), sessionEntriesProvider?.(), merged),
+                classifyToolCall("bash", input, signal, await getSessionCtx(), sessionEntriesProvider?.(), merged, intentFiles),
             );
         }
         return { decision: "ask", reason: shouldAllow.reason };

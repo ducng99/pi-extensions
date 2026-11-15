@@ -5,14 +5,21 @@
  * giving it an isolated context window.
  */
 
-import type { AgentToolResult, ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import fs from "fs";
 
+import {
+    PERMISSION_PROXY_TITLE,
+    PERMISSION_REQUEST_EVENT,
+    type PermissionProxyRequest,
+    type PermissionProxyResponse,
+    type PermissionRequestEvent,
+} from "../shared/permission-proxy/index";
 import { discoverAgents } from "./agents";
 import { renderCall, renderResult } from "./renderer";
-import { type ExtensionUIRequestHandler, runAgent, runAgentInBackground } from "./run";
+import { type ExtensionUIRequestHandler, runAgent, runAgentInBackground, toolsToClaudeSettingsJson } from "./run";
 import { SubagentParams } from "./schema";
-import type { BackgroundTaskInfo, SingleResult, SubagentDetails } from "./types";
+import type { AgentConfig, BackgroundTaskInfo, SingleResult, SubagentDetails } from "./types";
 import { getFinalOutput, getResultOutput, isFailedResult } from "./utils";
 
 const MAX_TASK_STATUS_LENGTH = 75;
@@ -23,14 +30,63 @@ function truncateTaskForStatus(task: string, maxLength: number): string {
     return task.slice(0, maxLength - 3) + "...";
 }
 
+const DENY_NO_HANDLER: PermissionProxyResponse = {
+    block: true,
+    reason: "Permissions could not be checked: the parent process has no permission handler.",
+    terminate: true,
+};
+
+/**
+ * Ask the tool-permissions extension of this (the main) process to decide a
+ * tool call made by a subagent. Fails closed.
+ */
+async function requestPermission(
+    pi: ExtensionAPI,
+    ctx: ExtensionContext,
+    agent: AgentConfig,
+    signal: AbortSignal | undefined,
+    payload: string,
+): Promise<PermissionProxyResponse> {
+    let request: PermissionProxyRequest;
+    try {
+        request = JSON.parse(payload) as PermissionProxyRequest;
+    }
+    catch {
+        return DENY_NO_HANDLER;
+    }
+
+    const event: PermissionRequestEvent = {
+        ctx,
+        signal,
+        agent: agent.name,
+        request,
+        extraSettings: toolsToClaudeSettingsJson(agent.tools, agent.disallowedTools),
+    };
+    pi.events.emit(PERMISSION_REQUEST_EVENT, event);
+    if (!event.result) return DENY_NO_HANDLER;
+
+    try {
+        return await event.result;
+    }
+    catch {
+        return DENY_NO_HANDLER;
+    }
+}
+
 /**
  * Create a handler that forwards extension UI requests from a child process
  * to the main session's UI. This enables permission prompts (and other UI
  * interactions) from subagent processes to be displayed to the user.
  */
-function createExtensionUIHandler(ui: ExtensionUIContext): ExtensionUIRequestHandler {
-    return async (request: Record<string, unknown>): Promise<Record<string, unknown>> => {
+function createExtensionUIHandler(pi: ExtensionAPI, ctx: ExtensionContext): ExtensionUIRequestHandler {
+    const ui = ctx.ui;
+    return async (request, agent, signal) => {
         const method = request["method"];
+
+        if (method === "input" && request["title"] === PERMISSION_PROXY_TITLE) {
+            const response = await requestPermission(pi, ctx, agent, signal, String(request["placeholder"] ?? ""));
+            return { value: JSON.stringify(response) };
+        }
 
         switch (method) {
             case "confirm": {
@@ -202,7 +258,7 @@ paths, line numbers, what specifically to change.
             }
 
             if (params.runInBackground) {
-                const bg = await runAgentInBackground(ctx.cwd, agents, params.agent, params.task, undefined, params.model, createExtensionUIHandler(ctx.ui));
+                const bg = await runAgentInBackground(ctx.cwd, agents, params.agent, params.task, undefined, params.model, createExtensionUIHandler(pi, ctx));
                 if ("error" in bg) {
                     return {
                         content: [{ type: "text", text: bg.error }],
@@ -315,7 +371,7 @@ paths, line numbers, what specifically to change.
                 signal,
                 onUpdate,
                 makeDetails("single"),
-                createExtensionUIHandler(ctx.ui),
+                createExtensionUIHandler(pi, ctx),
             );
             if (isFailedResult(result)) {
                 const errorMsg = getResultOutput(result);

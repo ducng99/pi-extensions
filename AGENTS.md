@@ -58,5 +58,5 @@ Pi coding agent extension project containing extensions and shared utilities. Ex
 ## Tool Permissions
 
 - `find` and `ls` map to the `bash` permission category; `edit` and `write` map to `edit`
-- Subagent permissions are merged last via `PI_SUBAGENT_PERMISSIONS_FILE`; precedence within merges is deny > ask > allow
+- Subagents start with the `--permission-proxy` flag (registered by tool-permissions) and make no decisions themselves: each tool call is sent to the main process over an RPC `input` request (`pi:permission-request:v1`), decided with the main session's mode, allowlist and prompts, with the classifier seeing only the child's transcript. The subagent definition's tools/disallowedTools are merged last; precedence within merges is deny > ask > allow
 - Project-local subagents require user confirmation when the project isn't trusted

@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { EventEmitter } from "events";
-import * as fs from "fs";
 
 import type { AgentConfig } from "../types";
 
@@ -46,7 +45,7 @@ const mockSpawn = mock((_command: string, _args: string[], _options: unknown) =>
     return proc;
 });
 
-const { runAgent, runAgentInBackground, getBackgroundTaskInfo, listBackgroundTasks, setSpawnForTests } = await import("../run");
+const { runAgent, runAgentInBackground, getBackgroundTaskInfo, listBackgroundTasks, setSpawnForTests, toolsToClaudeSettingsJson } = await import("../run");
 
 // Inject the mock spawner instead of mock.module("child_process"), which would
 // globally override the module and break sibling test files that use real spawn.
@@ -217,60 +216,38 @@ describe("runAgent", () => {
         expect(getModelValue(args)).toBe("openai/gpt-5");
     });
 
-    test("writes claude-style permissions file from tools/disallowedTools", async () => {
-        let captured: unknown = null;
-        mockSpawn.mockImplementationOnce((_command, _args, options) => {
-            const env = (options as { env?: NodeJS.ProcessEnv }).env;
-            const permsPath = env?.["PI_SUBAGENT_PERMISSIONS_FILE"];
-            if (permsPath) {
-                captured = JSON.parse(fs.readFileSync(permsPath, "utf-8"));
-            }
-            const proc = new MockChildProcess();
-            setTimeout(() => {
-                proc.stdout.emit(
-                    "data",
-                    '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"hello"}],"usage":{"input":1,"output":1}}}\n',
-                );
-                proc.emit("close", 0);
-            }, 0);
-            return proc;
-        });
-
-        const restricted: AgentConfig = {
-            name: "Restricted",
-            description: "restricted agent",
-            source: "user",
-            filePath: "restricted.md",
-            systemPrompt: "",
-            tools: ["Read"],
-            disallowedTools: ["Edit", "Write"],
-        };
-        await runAgent("/tmp", [...agents, restricted], "Restricted", "task", undefined, undefined, undefined, undefined, undefined, results => ({ results }));
-        expect(captured).toEqual({
-            permissions: {
-                allow: ["Read"],
-                ask: [],
-                deny: ["Edit", "Write"],
-            },
-        });
+    test("starts the child with the permission proxy flag and no permissions env", async () => {
+        await runAgent("/tmp", agents, "Test", "task", undefined, undefined, undefined, undefined, undefined, results => ({ results }));
+        const call = mockSpawn.mock.calls[0];
+        if (!call) throw new Error("expected spawn call");
+        expect(call[1]).toContain("--permission-proxy");
+        const env = (call[2] as { env?: NodeJS.ProcessEnv }).env;
+        expect(env?.["PI_SUBAGENT_PERMISSIONS_FILE"]).toBeUndefined();
     });
 
-    test("does not set permissions env when agent has no tools", async () => {
-        mockSpawn.mockImplementationOnce((_command, _args, options) => {
-            const env = (options as { env?: NodeJS.ProcessEnv }).env;
-            expect(env?.["PI_SUBAGENT_PERMISSIONS_FILE"]).toBeUndefined();
+    test("maps tools/disallowedTools to claude-style settings", () => {
+        expect(toolsToClaudeSettingsJson(["Read"], ["Edit", "Write"])).toEqual({
+            permissions: { allow: ["Read"], ask: [], deny: ["Edit", "Write"] },
+        });
+        expect(toolsToClaudeSettingsJson(undefined, undefined)).toBeNull();
+    });
+
+    test("passes the agent and abort signal to the UI request handler", async () => {
+        mockSpawn.mockImplementationOnce(() => {
             const proc = new MockChildProcess();
             setTimeout(() => {
-                proc.stdout.emit(
-                    "data",
-                    '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"hi"}],"usage":{"input":1,"output":1}}}\n',
-                );
+                proc.stdout.emit("data", '{"type":"extension_ui_request","id":"1","method":"input","title":"t"}\n');
                 proc.emit("close", 0);
             }, 0);
             return proc;
         });
-
-        await runAgent("/tmp", agents, "Test", "task", undefined, undefined, undefined, undefined, undefined, results => ({ results }));
+        const handler = mock(async () => ({ value: "x" }));
+        const controller = new AbortController();
+        await runAgent("/tmp", agents, "Test", "task", undefined, undefined, undefined, controller.signal, undefined, results => ({ results }), handler);
+        expect(handler).toHaveBeenCalledTimes(1);
+        const args = handler.mock.calls[0] as unknown as [unknown, AgentConfig, AbortSignal];
+        expect(args[1].name).toBe("Test");
+        expect(args[2]).toBe(controller.signal);
     });
 });
 

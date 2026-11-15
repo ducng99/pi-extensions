@@ -1,7 +1,7 @@
 import { basename, isAbsolute, normalize, relative, resolve, sep } from "path";
 
 import { matchPattern } from "../../../shared/pattern-matching/index";
-import { classifyToolCall } from "../classifier";
+import { classifyToolCall, type ContextFile } from "../classifier";
 import type { ParsedPermissions } from "../permission-parsing";
 import { DEFAULT_ALLOWED_TOOLS, TOOL_CATEGORY } from "../tool-categories";
 import { buildArgString } from "./arg-string";
@@ -62,9 +62,10 @@ export async function checkPermission(
     sessionContextProvider?: SessionContextProvider,
     sessionEntriesProvider?: SessionEntriesProvider,
     isSessionAllowed?: (path: string) => boolean,
+    intentFiles?: ContextFile[],
 ): Promise<PermissionDecision> {
     if (toolName === "bash") {
-        return await checkBashPermission(input, merged, cwd, getMode, signal, sessionContextProvider, sessionEntriesProvider, isSessionAllowed);
+        return await checkBashPermission(input, merged, cwd, getMode, signal, sessionContextProvider, sessionEntriesProvider, isSessionAllowed, intentFiles);
     }
 
     // read/edit/write on .pi/.claude is always asked — these files control
@@ -92,6 +93,7 @@ export async function checkPermission(
                     sessionContextProvider ? await sessionContextProvider() : undefined,
                     sessionEntriesProvider?.(),
                     merged,
+                    intentFiles,
                 ));
         }
         return mcpDecision;
@@ -148,6 +150,7 @@ export async function checkPermission(
                 sessionContextProvider ? await sessionContextProvider() : undefined,
                 sessionEntriesProvider?.(),
                 merged,
+                intentFiles,
             ));
     }
 

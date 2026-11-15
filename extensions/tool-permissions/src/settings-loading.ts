@@ -29,20 +29,6 @@ function loadJsonFile(path: string): LoadedSettings | null {
     }
 }
 
-function loadSubagentPermissionsFile(): LoadedSettings | null {
-    const envPath = process.env["PI_SUBAGENT_PERMISSIONS_FILE"];
-    if (!envPath) return null;
-    if (!existsSync(envPath)) return null;
-    try {
-        const content = stripJsoncComments(readFileSync(envPath, "utf-8"));
-        // Subagent extensions generate a Claude-style settings.json file.
-        return { permissions: parseClaudePerms(content), source: envPath };
-    }
-    catch {
-        return null;
-    }
-}
-
 // ============================================================================
 // Remote session (set by the remote extension via the event bus)
 // ============================================================================
@@ -129,7 +115,14 @@ function loadPlanModePermissions(): LoadedSettings | null {
     return { permissions: planModePermissions, source: "plan-mode" };
 }
 
-export async function collectAllSettings(cwd: string): Promise<ParsedPermissions[]> {
+export interface CollectSettingsOptions {
+    /** Rules from the subagent definition. Merged after user settings so deny > ask > allow still applies across the merged set. */
+    extraPermissions?: ParsedPermissions;
+    /** Merge the active remote session's project settings. False for subagent requests, which always run locally. */
+    includeRemote?: boolean;
+}
+
+export async function collectAllSettings(cwd: string, options: CollectSettingsOptions = {}): Promise<ParsedPermissions[]> {
     const all: ParsedPermissions[] = [];
 
     // Load all claude settings
@@ -150,13 +143,12 @@ export async function collectAllSettings(cwd: string): Promise<ParsedPermissions
 
     // Remote project settings (while /remote connect is active) merge after the
     // local ones: rules on the machine being edited take precedence.
-    const remote = await loadRemoteProjectSettings();
-    if (remote) all.push(remote);
+    if (options.includeRemote ?? true) {
+        const remote = await loadRemoteProjectSettings();
+        if (remote) all.push(remote);
+    }
 
-    // Subagent permissions file (if set) is merged last so it takes highest
-    // precedence while still respecting deny > ask > allow within the merged set.
-    const subagent = loadSubagentPermissionsFile();
-    if (subagent) all.push(subagent.permissions);
+    if (options.extraPermissions) all.push(options.extraPermissions);
 
     // Plan-mode permissions (while /plan is active) are merged last too, so the
     // plan-mode deny rules take precedence over the user's own settings.

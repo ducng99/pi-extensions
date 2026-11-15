@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
+import { parseClaudePerms } from "../src/permission-parsing";
 import type { ExecFn } from "../src/session-context";
 import { collectAllSettings, setRemoteSession } from "../src/settings-loading";
 
@@ -42,122 +43,34 @@ describe("collectAllSettings", () => {
         process.env["PI_SUBAGENT_PERMISSIONS_FILE"] = originalEnv;
     });
 
-    test("honors PI_SUBAGENT_PERMISSIONS_FILE env var", async () => {
+    test("extra permissions are merged after user settings", async () => {
         const projectDir = path.join(tmpDir, "project");
-        const claudeFile = path.join(projectDir, ".claude", "settings.json");
         writeFile(
-            claudeFile,
-            JSON.stringify({
-                permissions: {
-                    allow: [],
-                    ask: [],
-                    deny: [],
-                },
-            }),
+            path.join(projectDir, ".claude", "settings.json"),
+            JSON.stringify({ permissions: { allow: ["Edit(*)"], ask: [], deny: [] } }),
         );
 
-        const subagentFile = path.join(tmpDir, "subagent-perms.json");
-        writeFile(
-            subagentFile,
-            JSON.stringify({
-                permissions: {
-                    allow: [],
-                    ask: [],
-                    deny: ["Edit(*)"],
-                },
-            }),
-        );
-        process.env["PI_SUBAGENT_PERMISSIONS_FILE"] = subagentFile;
-
-        const settings = await collectAllSettings(projectDir);
-        expect(settings.length).toBe(2);
-        const merged = settings[settings.length - 1];
-        expect(merged?.deny).toContainEqual({ category: "edit", pattern: "*" });
-    });
-
-    test("subagent permissions file is merged after user settings", async () => {
-        const projectDir = path.join(tmpDir, "project");
-        const claudeFile = path.join(projectDir, ".claude", "settings.json");
-        writeFile(
-            claudeFile,
-            JSON.stringify({
-                permissions: {
-                    allow: ["Edit(*)"],
-                    ask: [],
-                    deny: [],
-                },
-            }),
-        );
-
-        const subagentFile = path.join(tmpDir, "subagent-perms.json");
-        writeFile(
-            subagentFile,
-            JSON.stringify({
-                permissions: {
-                    allow: [],
-                    ask: [],
-                    deny: ["Edit(*)"],
-                },
-            }),
-        );
-        process.env["PI_SUBAGENT_PERMISSIONS_FILE"] = subagentFile;
-
-        const settings = await collectAllSettings(projectDir);
+        const settings = await collectAllSettings(projectDir, {
+            extraPermissions: parseClaudePerms(JSON.stringify({ permissions: { allow: [], ask: [], deny: ["Edit(*)"] } })),
+        });
         expect(settings.length).toBe(2);
         expect(settings[0]?.allow).toContainEqual({ category: "edit", pattern: "*" });
         expect(settings[1]?.deny).toContainEqual({ category: "edit", pattern: "*" });
     });
 
-    test("ignores missing PI_SUBAGENT_PERMISSIONS_FILE", async () => {
+    test("remote settings are skipped when includeRemote is false", async () => {
         const projectDir = path.join(tmpDir, "project");
-        const claudeFile = path.join(projectDir, ".claude", "settings.json");
-        writeFile(
-            claudeFile,
-            JSON.stringify({
-                permissions: {
-                    allow: [],
-                    ask: [],
-                    deny: [],
-                },
-            }),
-        );
-
-        const settings = await collectAllSettings(projectDir);
-        expect(settings.length).toBe(1);
-        expect(settings[0]?.allow).toEqual([]);
-    });
-
-    test("subagent permissions file with .jsonc extension is parsed as JSONC", async () => {
-        const projectDir = path.join(tmpDir, "project");
-        const claudeFile = path.join(projectDir, ".claude", "settings.json");
-        writeFile(
-            claudeFile,
-            JSON.stringify({
-                permissions: {
-                    allow: [],
-                    ask: [],
-                    deny: [],
-                },
-            }),
-        );
-
-        const subagentFile = path.join(tmpDir, "subagent-perms.jsonc");
-        writeFile(
-            subagentFile,
-            `{
-                // comments are allowed
-                "permissions": {
-                    "allow": [],
-                    "ask": [],
-                    "deny": ["Bash(*)"]
-                }
-            }`,
-        );
-        process.env["PI_SUBAGENT_PERMISSIONS_FILE"] = subagentFile;
-
-        const settings = await collectAllSettings(projectDir);
-        const merged = settings[settings.length - 1];
-        expect(merged?.deny).toContainEqual({ category: "bash", pattern: "*" });
+        setRemoteSession({
+            remoteCwd: "/remote",
+            exec: createFakeExec({ "/remote/.claude/settings.json": JSON.stringify({ permissions: { deny: ["Bash(*)"] } }) }),
+        });
+        try {
+            expect((await collectAllSettings(projectDir, { includeRemote: false })).length).toBe(0);
+            expect((await collectAllSettings(projectDir)).length).toBe(1);
+        }
+        finally {
+            setRemoteSession(null);
+        }
     });
 });
 

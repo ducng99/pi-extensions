@@ -70,16 +70,6 @@ export interface ContextFile {
     content: string;
 }
 
-let intentFiles: ContextFile[] = [];
-
-/**
- * Receive the session's pre-loaded instruction files (AGENTS.md / CLAUDE.md)
- * from the `before_agent_start` event and keep them for classification.
- */
-export function setIntentFiles(files: ContextFile[] | undefined) {
-    intentFiles = files ?? [];
-}
-
 /**
  * Build the user-intent message (one per request, before the transcript), or
  * null when the session has no instruction files.
@@ -304,6 +294,7 @@ export async function classifyToolCall(
     sessionContext?: ClassifierSessionContext,
     entries?: SessionEntry[],
     rules?: ParsedPermissions,
+    intentFiles: ContextFile[] = [],
 ): Promise<PermissionDecision> {
     try {
         if (!registry) throw new ClassifierError("Decision classifier registry not loaded");

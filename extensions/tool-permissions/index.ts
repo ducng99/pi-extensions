@@ -5,7 +5,7 @@
  * - claude settings.json (global: ~/.claude/settings.json)
  * - claude settings.json (project-local: .claude/settings.json)
  * - claude settings.local.json (project-local, higher priority: .claude/settings.local.json)
- * - subagent permissions file (PI_SUBAGENT_PERMISSIONS_FILE)
+ * - subagent definition rules (only for permission requests forwarded by the subagent extension)
  * - plan-mode permissions (while the plan extension's /plan is active)
  *
  * Priority: Settings are merged with deny > ask > allow priority.
@@ -16,15 +16,24 @@
  * plan-mode deny rules take precedence over the user's own settings.
  */
 
-import type { ExtensionAPI, Theme, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, SessionEntry, Theme, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 
 import { initParser } from "../shared/bash-parser/index";
+import {
+    PERMISSION_PROXY_FLAG,
+    PERMISSION_PROXY_TITLE,
+    PERMISSION_REQUEST_EVENT,
+    type PermissionProxyContextFile,
+    type PermissionProxyRequest,
+    type PermissionProxyResponse,
+    type PermissionRequestEvent,
+} from "../shared/permission-proxy/index";
 import { type PermissionResult, PermissionSelector, type PermissionSelectorOption } from "../shared/tui-components/index";
 import { loadClassifier } from "./src/classifier";
-import { setIntentFiles as setClassifierIntentFiles } from "./src/classifier/systemone";
 import { formatConfirmMessage } from "./src/confirmation-message";
 import { checkPermission, type PermissionMode } from "./src/permission-check";
-import type { ParsedPermissions } from "./src/permission-parsing";
+import { parseClaudePerms, type ParsedPermissions } from "./src/permission-parsing";
+import { parseProxyResponse, slimEntries } from "./src/proxy";
 import { SessionAllowlist } from "./src/session-allowlist";
 import { buildSessionContext, type ExecFn } from "./src/session-context";
 import { collectAllSettings, getRemoteSession, mergePermissions, setPlanModePermissions, setRemoteSession } from "./src/settings-loading";
@@ -91,12 +100,22 @@ export default function (pi: ExtensionAPI) {
         setRemoteSession(null);
     });
 
-    // Feed the session's pre-loaded instruction files (AGENTS.md / CLAUDE.md)
-    // to the LLM classifier as user intent — Claude Code sends CLAUDE.md to
-    // its auto mode classifier the same way. Refreshed every turn.
+    // The session's pre-loaded instruction files (AGENTS.md / CLAUDE.md) go to
+    // the LLM classifier as user intent - Claude Code sends CLAUDE.md to its
+    // auto mode classifier the same way. Refreshed every turn.
+    let contextFiles: PermissionProxyContextFile[] = [];
     pi.on("before_agent_start", (event) => {
-        setClassifierIntentFiles(event.systemPromptOptions.contextFiles);
+        contextFiles = event.systemPromptOptions.contextFiles ?? [];
     });
+
+    // A process started with --permission-proxy (a subagent) makes no permission
+    // decisions itself: every request is answered by the parent process.
+    pi.registerFlag(PERMISSION_PROXY_FLAG, {
+        description: "Forward all permission decisions to the parent process (used by subagents)",
+        type: "boolean",
+        default: false,
+    });
+    const isProxy = () => pi.getFlag(PERMISSION_PROXY_FLAG) === true;
 
     // Initialize parser eagerly at startup
     ensureParserInitialized().catch((err) => {
@@ -105,15 +124,40 @@ export default function (pi: ExtensionAPI) {
 
     // Show permission mode status indicator on session start
     pi.on("session_start", (_, ctx) => {
+        if (isProxy()) return;
         if (permissionMode === "auto") {
             loadClassifier(ctx.modelRegistry).catch(() => {});
         }
         ctx.ui.setStatus("STATUS_PERMISSION_MODE", modeStatusText(ctx.ui.theme));
     });
 
-    pi.on("tool_call", async (event: ToolCallEvent, ctx): Promise<ToolCallEventResult | void> => {
-        const toolName = event.toolName;
-        const input = event.input as Record<string, unknown>;
+    // Serializes permission prompts so concurrent tool calls (parallel tools,
+    // several subagents) never stack dialogs on top of each other.
+    let promptQueue: Promise<unknown> = Promise.resolve();
+    function enqueuePrompt<T>(task: () => Promise<T>): Promise<T> {
+        const run = promptQueue.then(task, task);
+        promptQueue = run.catch(() => {});
+        return run;
+    }
+
+    interface DecideOptions {
+        ctx: ExtensionContext;
+        signal: AbortSignal | undefined;
+        /** Working directory of the process that makes the tool call. */
+        cwd: string;
+        getEntries: () => SessionEntry[];
+        contextFiles: PermissionProxyContextFile[];
+        /** Rules from the subagent definition. */
+        extraPermissions?: ParsedPermissions;
+        /** Name of the subagent that made the call, shown in prompts. */
+        agent?: string;
+        /** Whether the active /remote session applies to this call. */
+        useRemote: boolean;
+    }
+
+    async function decide(toolName: string, input: Record<string, unknown>, options: DecideOptions): Promise<ToolCallEventResult | undefined> {
+        const { ctx, agent } = options;
+        const promptTitle = agent ? `[${agent}] Allow ${toolName}?` : `Allow ${toolName}?`;
 
         // Session-scoped approvals: a prior "Yes, allow this session" decision
         // skips both the permission check and the prompt. Bash commands are
@@ -129,13 +173,16 @@ export default function (pi: ExtensionAPI) {
 
         // While a remote session is active, paths are checked against the
         // remote working directory instead of the local one.
-        const remote = getRemoteSession();
-        const boundaryCwd = remote?.remoteCwd ?? ctx.cwd;
+        const remote = options.useRemote ? getRemoteSession() : null;
+        const boundaryCwd = remote?.remoteCwd ?? options.cwd;
 
         // Collect and merge permissions (cache-friendly — loads on every call,
         // but file reads are fast for config files; remote settings are
         // fetched once per connection)
-        const allSettings = await collectAllSettings(ctx.cwd);
+        const allSettings = await collectAllSettings(options.cwd, {
+            extraPermissions: options.extraPermissions,
+            includeRemote: options.useRemote,
+        });
         const merged = mergePermissions(allSettings);
 
         // Derive the classifier's session context lazily (only built when the
@@ -148,10 +195,11 @@ export default function (pi: ExtensionAPI) {
             merged,
             boundaryCwd,
             () => permissionMode,
-            ctx.signal,
-            () => buildSessionContext(ctx.sessionManager.getEntries(), boundaryCwd, remote?.exec ?? pi.exec),
-            () => ctx.sessionManager.getEntries(),
+            options.signal,
+            () => buildSessionContext(options.getEntries(), boundaryCwd, remote?.exec ?? pi.exec),
+            options.getEntries,
             path => sessionAllowlist.allowsOutOfBoundsPath(path),
+            options.contextFiles,
         );
 
         if (decision.decision === "deny") {
@@ -171,9 +219,9 @@ export default function (pi: ExtensionAPI) {
             // supported (e.g. RPC mode used by subagents), fall back to the
             // simpler confirm() dialog which is forwarded to the parent session
             // via the extension_ui_request/extension_ui_response protocol.
-            const customResult = await ctx.ui.custom<PermissionResult>((tui, theme, _keybindings, done) => {
+            const customResult = await enqueuePrompt(() => ctx.ui.custom<PermissionResult>((tui, theme, _keybindings, done) => {
                 const contextMsg = formatConfirmMessage(theme, toolName, input, boundaryCwd, decision.reason);
-                const question = `Allow ${toolName}?`;
+                const question = promptTitle;
                 const rows = tui.terminal.rows;
                 const allowSessionLabel = outOfBoundsPath
                     ? `Yes, allow this session for ${outOfBoundsPath}`
@@ -208,7 +256,7 @@ export default function (pi: ExtensionAPI) {
                     width: "100%",
                     margin: { top: 1, bottom: 1 },
                 },
-            });
+            }));
 
             if (customResult !== undefined) {
                 if (customResult.allow) {
@@ -244,10 +292,7 @@ export default function (pi: ExtensionAPI) {
             // surfaced here; users wanting session-scope can still rely on the
             // TUI prompt, or add an explicit allow rule.
             const contextMsg = formatConfirmMessage(ctx.ui.theme, toolName, input, boundaryCwd, decision.reason, ctx.hasUI);
-            const allowed = await ctx.ui.confirm(
-                `Allow ${toolName}?`,
-                contextMsg,
-            );
+            const allowed = await enqueuePrompt(() => ctx.ui.confirm(promptTitle, contextMsg));
 
             if (allowed) {
                 return undefined;
@@ -266,6 +311,63 @@ export default function (pi: ExtensionAPI) {
 
         // "allow" — proceed with execution
         return undefined;
+    }
+
+    pi.on("tool_call", async (event: ToolCallEvent, ctx): Promise<ToolCallEventResult | void> => {
+        const input = event.input as Record<string, unknown>;
+
+        if (isProxy()) {
+            const request: PermissionProxyRequest = {
+                toolName: event.toolName,
+                input,
+                cwd: ctx.cwd,
+                entries: slimEntries(ctx.sessionManager.getEntries()),
+                contextFiles,
+            };
+            const answer = await ctx.ui.input(PERMISSION_PROXY_TITLE, JSON.stringify(request), { signal: ctx.signal });
+            const response = parseProxyResponse(answer);
+            if (!response.block) return undefined;
+            return {
+                block: true,
+                reason: response.reason ?? `${event.toolName} was denied.`,
+                terminate: response.terminate,
+            };
+        }
+
+        return decide(event.toolName, input, {
+            ctx,
+            signal: ctx.signal,
+            cwd: ctx.cwd,
+            getEntries: () => ctx.sessionManager.getEntries(),
+            contextFiles,
+            useRemote: true,
+        });
+    });
+
+    // Permission requests forwarded by the subagent extension. The decision uses
+    // this process's mode, allowlist, plan/remote state and prompts, but the
+    // classifier only sees the child's own transcript and instruction files.
+    pi.events.on(PERMISSION_REQUEST_EVENT, (data) => {
+        const event = data as PermissionRequestEvent;
+        if (event.result) return;
+        const { request } = event;
+        const extraPermissions = event.extraSettings ? parseClaudePerms(JSON.stringify(event.extraSettings)) : undefined;
+        event.result = decide(request.toolName, request.input, {
+            ctx: event.ctx,
+            signal: event.signal,
+            cwd: request.cwd,
+            getEntries: () => request.entries,
+            contextFiles: request.contextFiles,
+            extraPermissions,
+            agent: event.agent,
+            useRemote: false,
+        }).then(
+            (result): PermissionProxyResponse => ({
+                block: result?.block === true,
+                reason: result?.reason,
+                terminate: result?.terminate,
+            }),
+        );
     });
 
     pi.registerCommand("automode", {
