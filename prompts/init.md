@@ -15,3 +15,5 @@ Usage notes:
 - If there are Claude rules (in CLAUDE.md), OpenAI Codex config (~/.codex/config.toml or ./.codex/), a Gemini CLI config (~/.gemini/settings.json or ./.gemini/ or a GEMINI.md), Cursor rules (in .cursor/rules/ or .cursorrules) or Copilot rules (in .github/copilot-instructions.md), make sure to include the important parts.
 - If there is a README.md, make sure to include the important parts.
 - Do not make up information such as "Common Development Tasks", "Tips for Development", "Support and Documentation" unless this is expressly included in other files that you read.
+
+$@

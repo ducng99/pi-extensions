@@ -29,3 +29,5 @@ First, run these commands to see the current state:
 - `git status --short`
 - `git diff`
 - `git diff --cached`
+
+$@
