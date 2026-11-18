@@ -60,7 +60,7 @@ export default function planExtension(pi: ExtensionAPI) {
 
         pi.sendMessage({
             customType: "plan",
-            content: "Plan mode disabled. You can now make edits, run tools and take actions.",
+            content: "Plan mode disabled. You can now make edits.",
             display: false,
         }, {
             triggerTurn: false,
@@ -177,16 +177,27 @@ export default function planExtension(pi: ExtensionAPI) {
         restorePlanModeFromSession(ctx);
     });
 
-    pi.on("tool_result", async (event, ctx) => {
-        if (!planModeActive || !PLAN_WRITE_TOOLS.has(event.toolName) || !ctx.hasUI) return;
+    let pendingPlan: { filename: string; fullPath: string; isError: boolean } | undefined;
 
-        const first = event.content?.[0];
-        const content = first?.type === "text" ? first.text : "";
-        const filename = (event.details as PlanDetails | undefined)?.filename ?? "";
+    pi.on("tool_result", (event) => {
+        if (!planModeActive || !PLAN_WRITE_TOOLS.has(event.toolName)) return;
+        const eventDetails = event.details as PlanDetails | undefined;
+        if (!eventDetails?.fullPath) return;
+
+        pendingPlan = { filename: eventDetails.filename ?? "", fullPath: eventDetails.fullPath, isError: event.isError };
+    });
+
+    pi.on("agent_end", async (_, ctx) => {
+        const plan = pendingPlan;
+        pendingPlan = undefined;
+        if (!plan || !planModeActive || !ctx.hasUI) return;
+
+        const content = await readFile(plan.fullPath, "utf8");
+        const filename = plan.filename;
 
         const options = [
             "Implement now — exit plan mode and continue working",
-            "Clear & implement — start fresh (not yet implemented)",
+            // "Clear & implement — start fresh (not yet implemented)",
             "Chat more — stay in plan mode and keep chatting",
         ];
 
@@ -199,7 +210,7 @@ export default function planExtension(pi: ExtensionAPI) {
                         createPlanPrompt(filename, content, {
                             tui,
                             theme,
-                            isError: event.isError,
+                            isError: plan.isError,
                             done,
                         }),
                     {
@@ -214,14 +225,12 @@ export default function planExtension(pi: ExtensionAPI) {
                 )
             : await ctx.ui.select("Plan ready — what next?", options);
 
-        ctx.abort();
-
         if (choice?.startsWith("Implement now")) {
             deactivatePlanMode(ctx);
-            pi.sendUserMessage("Implement the plan now.");
+            pi.sendUserMessage("Implement the plan now", { deliverAs: ctx.isIdle() ? undefined : "followUp" });
         }
         else if (choice?.startsWith("Clear & implement")) {
-            ctx.ui.notify("Clear & implement: not yet implemented.", "warning");
+            ctx.ui.notify("Clear & implement: not yet implemented", "warning");
         }
         // "Chat more": close the prompt, stay in plan mode, keep chatting.
     });
@@ -241,12 +250,7 @@ export default function planExtension(pi: ExtensionAPI) {
                 activatePlanMode(ctx);
             }
 
-            if (ctx.isIdle()) {
-                pi.sendUserMessage(prompt);
-            }
-            else {
-                pi.sendUserMessage(prompt, { deliverAs: "followUp" });
-            }
+            pi.sendUserMessage(prompt, { deliverAs: ctx.isIdle() ? undefined : "followUp" });
         },
     });
 
@@ -285,7 +289,7 @@ export default function planExtension(pi: ExtensionAPI) {
             );
 
             return {
-                content: [{ type: "text", text: params.content }],
+                content: [{ type: "text", text: "Plan created" }],
                 details: { filename, fullPath },
             };
         },
@@ -297,7 +301,7 @@ export default function planExtension(pi: ExtensionAPI) {
         description: "Edit an existing plan markdown file under .pi/plans by replacing old_text with new_text. Errors if old_text is not found, or if it matches more than once (ambiguous — refuses to edit).",
         promptSnippet: "Edit an existing plan markdown file under .pi/plans",
         promptGuidelines: [
-            "Use edit_plan (not edit/write) to update a plan file while plan mode is active. old_text must match exactly and appear exactly once in the file",
+            "Use edit_plan to update a plan file while plan mode is active. old_text must match exactly and appear exactly once in the file",
         ],
         parameters: EditPlanParams,
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -324,9 +328,8 @@ export default function planExtension(pi: ExtensionAPI) {
                 ctx,
             );
 
-            const updated = await readFile(fullPath, "utf8");
             return {
-                content: [{ type: "text", text: updated }],
+                content: [{ type: "text", text: "Plan updated" }],
                 details: { filename, fullPath },
             };
         },
