@@ -253,7 +253,7 @@ export default function planExtension(pi: ExtensionAPI) {
     });
 
     pi.registerCommand("plan", {
-        description: "Toggle plan mode (read-only exploration + write_plan/edit_plan). With a prompt, enables plan mode (if needed) and sends the prompt",
+        description: "Toggle plan mode. With a prompt, enables plan mode (if needed) and sends the prompt",
         handler: async (args, ctx) => {
             const prompt = args.trim();
             if (!prompt) {
@@ -339,7 +339,7 @@ export default function planExtension(pi: ExtensionAPI) {
             const editToolDef = createEditToolDefinition(ctx.cwd);
             await editToolDef.execute(
                 "edit_plan",
-                { path: fullPath, edits: [{ oldText: params.old_text, newText: params.new_text }] },
+                { path: fullPath, edits: params.edits },
                 _signal,
                 undefined,
                 ctx,

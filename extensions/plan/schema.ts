@@ -19,12 +19,14 @@ export const EditPlanParams = Type.Object({
         description: "Name of the plan file (with or without the `.md` extension)",
         minLength: 1,
     }),
-    old_text: Type.String({
-        description: "Exact text to locate; must match exactly once or the edit is refused",
-    }),
-    new_text: Type.String({
-        description: "Replacement text for the located `old_text`",
-    }),
+    edits: Type.Array(Type.Object({
+        oldText: Type.String({
+            description: "Exact text to locate; must match exactly once or the edit is refused",
+        }),
+        newText: Type.String({
+            description: "Replacement text for the located `old_text`",
+        }),
+    })),
 });
 
 export interface PlanDetails {
