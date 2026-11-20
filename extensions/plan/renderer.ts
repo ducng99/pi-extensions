@@ -64,9 +64,9 @@ const PLAN_OPTIONS: SelectItem[] = [
         description: "Exit plan mode and continue working",
     },
     {
-        value: "Clear & implement — start fresh (not yet implemented)",
+        value: "Clear & implement — start a new session and implement the plan",
         label: "Clear & implement",
-        description: "Start fresh (not yet implemented)",
+        description: "Start a new session and implement the plan",
     },
     {
         value: "Chat more — stay in plan mode and keep chatting",

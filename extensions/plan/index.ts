@@ -30,6 +30,8 @@ import { EditPlanParams, WritePlanParams } from "./schema";
 import { PLAN_MODE_PERMISSIONS, PLAN_TOOL_NAMES, PLAN_WRITE_TOOLS } from "./tools";
 import { normalizePlanFilename, plansDir } from "./utils";
 
+const IMPLEMENT_FRESH_COMMAND = "plan-implement-fresh";
+
 const STATUS_PLAN_MODE = "status:plan_mode";
 const PLAN_MODE_ENTRY_TYPE = "plan:mode";
 
@@ -187,7 +189,7 @@ export default function planExtension(pi: ExtensionAPI) {
         pendingPlan = { filename: eventDetails.filename ?? "", fullPath: eventDetails.fullPath, isError: event.isError };
     });
 
-    pi.on("agent_end", async (_, ctx) => {
+    pi.on("agent_settled", async (_, ctx) => {
         const plan = pendingPlan;
         pendingPlan = undefined;
         if (!plan || !planModeActive || !ctx.hasUI) return;
@@ -197,7 +199,7 @@ export default function planExtension(pi: ExtensionAPI) {
 
         const options = [
             "Implement now — exit plan mode and continue working",
-            // "Clear & implement — start fresh (not yet implemented)",
+            "Clear & implement — start a new session and implement the plan",
             "Chat more — stay in plan mode and keep chatting",
         ];
 
@@ -227,12 +229,27 @@ export default function planExtension(pi: ExtensionAPI) {
 
         if (choice?.startsWith("Implement now")) {
             deactivatePlanMode(ctx);
-            pi.sendUserMessage("Implement the plan now", { deliverAs: ctx.isIdle() ? undefined : "followUp" });
+            pi.sendUserMessage("Implement the plan now");
         }
         else if (choice?.startsWith("Clear & implement")) {
-            ctx.ui.notify("Clear & implement: not yet implemented", "warning");
+            pi.sendUserMessage(`/${IMPLEMENT_FRESH_COMMAND} ${plan.fullPath}`, { expandPromptTemplates: true });
         }
         // "Chat more": close the prompt, stay in plan mode, keep chatting.
+    });
+
+    pi.registerCommand(IMPLEMENT_FRESH_COMMAND, {
+        description: "Internal: start a new session and implement the plan at the given path",
+        handler: async (args, ctx) => {
+            const planPath = args.trim();
+            if (!planPath) return;
+
+            await ctx.newSession({
+                parentSession: ctx.sessionManager.getSessionFile(),
+                withSession: async (newCtx) => {
+                    await newCtx.sendUserMessage(`Implement the plan in ${planPath}`);
+                },
+            });
+        },
     });
 
     pi.registerCommand("plan", {

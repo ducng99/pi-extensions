@@ -79,13 +79,25 @@ function setupHarness() {
     planExtension(fakePi as never);
 
     const uiCalls = { prompts: 0 };
+    let nextChoice = "Chat more — stay in plan mode and keep chatting";
+    const newSessionCalls: { parentSession?: string }[] = [];
+    const replacementMessages: string[] = [];
     const ctx = (cwd: string, isIdle = true) => ({
         cwd,
         hasUI: true,
         mode: "tui",
         isIdle: () => isIdle,
         abort: () => {},
-        sessionManager: { getEntries: () => [...entries] },
+        sessionManager: { getEntries: () => [...entries], getSessionFile: () => "/sessions/parent.jsonl" },
+        newSession: async (options: { parentSession?: string; withSession?: (ctx: unknown) => Promise<void> }) => {
+            newSessionCalls.push({ parentSession: options.parentSession });
+            await options.withSession?.({
+                sendUserMessage: async (text: string) => {
+                    replacementMessages.push(text);
+                },
+            });
+            return { cancelled: false };
+        },
         ui: {
             notify: () => {},
             setStatus: () => {},
@@ -95,11 +107,11 @@ function setupHarness() {
                 // Build and render the component to exercise the prompt UI.
                 const comp = factory({ requestRender: () => {}, terminal: { rows: 40 } }, fakeTheme, undefined, () => {});
                 comp.render(80);
-                return "Chat more — stay in plan mode and keep chatting";
+                return nextChoice;
             },
             select: () => {
                 uiCalls.prompts++;
-                return Promise.resolve("Chat more — stay in plan mode and keep chatting");
+                return Promise.resolve(nextChoice);
             },
         },
     });
@@ -117,9 +129,16 @@ function setupHarness() {
             entries.splice(0, entries.length, ...other);
         },
         sessionStart: (cwd: string) => listeners.get("session_start")!({ type: "session_start", reason: "new" }, ctx(cwd)),
-        executionEnd: (toolName: string, cwd: string) =>
-            listeners.get("tool_result")!({ toolName }, ctx(cwd)),
+        executionEnd: (toolName: string, cwd: string, details?: PlanDetails) =>
+            listeners.get("tool_result")!({ toolName, details, isError: false }, ctx(cwd)),
+        agentSettled: (cwd: string) => listeners.get("agent_settled")!({ type: "agent_settled" }, ctx(cwd)),
         selectCount: () => uiCalls.prompts,
+        setChoice: (choice: string) => {
+            nextChoice = choice;
+        },
+        runCommand: (name: string, args: string, cwd: string) => commands.get(name)!.handler(args, ctx(cwd)),
+        newSessionCalls: () => [...newSessionCalls],
+        replacementMessages: () => [...replacementMessages],
         executeTool: (name: string, params: unknown, cwd: string): Promise<PlanToolResult> => {
             const tool = tools.get(name);
             if (!tool) throw new Error(`tool ${name} not registered`);
@@ -159,7 +178,7 @@ describe("plan extension tools", () => {
         expect(await readFile(res.details.fullPath, "utf8")).toBe("one TWO three");
     });
 
-    test("tool_result only prompts after write_plan/edit_plan", async () => {
+    test("only write_plan/edit_plan prompt, after the agent settles", async () => {
         const h = setupHarness();
         dir = await mkdtemp(join(tmpdir(), "plan-test-"));
         await h.togglePlan(dir);
@@ -167,13 +186,47 @@ describe("plan extension tools", () => {
         // Read-only and exploration tools must NOT trigger the prompt.
         for (const toolName of ["read", "bash", "grep", "find", "ls", "ask_user_questions"]) {
             await h.executionEnd(toolName, dir);
+            await h.agentSettled(dir);
         }
         expect(h.selectCount()).toBe(0);
 
-        // Only write_plan / edit_plan should prompt.
-        await h.executionEnd("write_plan", dir);
-        await h.executionEnd("edit_plan", dir);
+        // Only write_plan / edit_plan should prompt, once the agent has settled.
+        const written = await h.executeTool("write_plan", { filename: "plan", content: "one two three" }, dir);
+        await h.executionEnd("write_plan", dir, written.details);
+        expect(h.selectCount()).toBe(0);
+        await h.agentSettled(dir);
+        expect(h.selectCount()).toBe(1);
+
+        const edited = await h.executeTool("edit_plan", { filename: "plan", old_text: "two", new_text: "TWO" }, dir);
+        await h.executionEnd("edit_plan", dir, edited.details);
+        await h.agentSettled(dir);
         expect(h.selectCount()).toBe(2);
+    });
+
+    test("Clear & implement starts a new session that implements the plan", async () => {
+        const h = setupHarness();
+        dir = await mkdtemp(join(tmpdir(), "plan-test-"));
+        await h.togglePlan(dir);
+        const written = await h.executeTool("write_plan", { filename: "plan", content: "one two three" }, dir);
+        await h.executionEnd("write_plan", dir, written.details);
+
+        h.setChoice("Clear & implement — start a new session and implement the plan");
+        await h.agentSettled(dir);
+
+        const planPath = written.details.fullPath;
+        expect(h.userMessages()).toEqual([{ text: `/plan-implement-fresh ${planPath}`, deliverAs: undefined }]);
+
+        await h.runCommand("plan-implement-fresh", planPath, dir);
+        expect(h.newSessionCalls()).toEqual([{ parentSession: "/sessions/parent.jsonl" }]);
+        expect(h.replacementMessages()).toEqual([`Implement the plan in ${planPath}`]);
+    });
+
+    test("plan-implement-fresh without a path does nothing", async () => {
+        const h = setupHarness();
+        dir = await mkdtemp(join(tmpdir(), "plan-test-"));
+
+        await h.runCommand("plan-implement-fresh", "  ", dir);
+        expect(h.newSessionCalls()).toEqual([]);
     });
 
     test("plan mode persists in the session and is restored on session_start", async () => {
