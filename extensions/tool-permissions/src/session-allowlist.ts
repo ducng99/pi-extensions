@@ -15,7 +15,7 @@
 // into claude settings — so a transient in-session decision does not survive
 // a restart.
 
-import { resolve } from "path";
+import { dirname, resolve } from "path";
 
 import { buildArgString } from "./permission-check";
 
@@ -60,9 +60,15 @@ export class SessionAllowlist {
         this.outOfBoundsPaths.add(normalizePath(path));
     }
 
-    /** True when an out-of-bounds path was previously approved for the session. */
+    /** True when an out-of-bounds path, or any of its parent directories, was previously approved for the session. */
     allowsOutOfBoundsPath(path: string): boolean {
-        return this.outOfBoundsPaths.has(normalizePath(path));
+        let current = normalizePath(path);
+        while (true) {
+            if (this.outOfBoundsPaths.has(current)) return true;
+            const parent = dirname(current);
+            if (parent === current) return false;
+            current = parent;
+        }
     }
 
     /** Wipe the allowlist (currently unused; reserved for future commands). */
