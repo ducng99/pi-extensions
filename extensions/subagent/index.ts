@@ -5,7 +5,7 @@
  * giving it an isolated context window.
  */
 
-import type { AgentToolResult, ExtensionAPI, ExtensionContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, CustomMessageEntry, ExtensionAPI, ExtensionContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import fs from "fs";
 
 import {
@@ -22,6 +22,7 @@ import { SubagentParams } from "./schema";
 import type { AgentConfig, BackgroundTaskInfo, SingleResult, SubagentDetails } from "./types";
 import { getFinalOutput, getResultOutput, isFailedResult } from "./utils";
 
+const MESSAGE_CUSTOM_TYPE = "available-subagents";
 const MAX_TASK_STATUS_LENGTH = 75;
 
 function truncateTaskForStatus(task: string, maxLength: number): string {
@@ -162,10 +163,16 @@ export default function subagentExtension(pi: ExtensionAPI) {
         const discovery = discoverAgents(ctx.cwd);
         const agents = discovery.agents;
         if (agents.length === 0) return;
+
         const list = agents.map(a => `- ${a.name}: ${a.description}`).join("\n");
+        const content = `Available subagents:\n${list}`;
+
+        const lastEntry = ctx.sessionManager.getBranch().findLast(e => e.type === "custom_message" && e.customType === MESSAGE_CUSTOM_TYPE) as CustomMessageEntry | undefined;
+        if (lastEntry && lastEntry.content === content) return;
+
         pi.sendMessage({
-            customType: "subagent-available-agents",
-            content: `Available subagents:\n${list}`,
+            customType: MESSAGE_CUSTOM_TYPE,
+            content,
             display: false,
         }, {
             triggerTurn: false,
