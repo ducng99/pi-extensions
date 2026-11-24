@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 
 import { initParser } from "../../../shared/bash-parser/index";
 import { checkPermission } from "./check";
+import { extractRedirectionPaths } from "./path-extraction";
 import { makePerms } from "./test-helpers";
 
 // Initialize parser before all tests
@@ -159,5 +160,16 @@ describe("checkPermission: regex patterns that look like paths (grep/rg/sed/awk)
         const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
         const result = await checkPermission("bash", { command: "cat /etc/passwd" }, perms, cwd);
         expect(result.decision).toBe("ask");
+    });
+});
+
+describe("extractRedirectionPaths: substitutions", () => {
+    test("ignores redirections inside command substitution", () => {
+        expect(extractRedirectionPaths("cat $(date 2>/dev/null)")).toEqual([]);
+        expect(extractRedirectionPaths("cat `date 2>/etc/x`")).toEqual([]);
+    });
+
+    test("still detects redirections outside the substitution", () => {
+        expect(extractRedirectionPaths("cat $(date 2>/dev/null) > /etc/x")).toEqual(["/etc/x"]);
     });
 });

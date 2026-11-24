@@ -261,9 +261,45 @@ export function extractPathArgs(args: string[]): string[] {
 }
 
 /**
+ * Remove `$(...)`, `<(...)`, `>(...)` and backtick substitutions. They are
+ * detected as complex by the parser, and their inner text (including inner
+ * redirections like `2>/dev/null)`) must not be treated as this command's
+ * redirections.
+ */
+function stripSubstitutions(command: string): string {
+    let result = "";
+    let i = 0;
+    while (i < command.length) {
+        const c = command[i]!;
+        const isParenOpen = command[i + 1] === "(" && (c === "$" || c === "<" || c === ">");
+        if (isParenOpen) {
+            let depth = 0;
+            let j = i + 1;
+            for (; j < command.length; j++) {
+                if (command[j] === "(") depth++;
+                else if (command[j] === ")" && --depth === 0) break;
+            }
+            result += " ";
+            i = j + 1;
+        }
+        else if (c === "`") {
+            const end = command.indexOf("`", i + 1);
+            result += " ";
+            i = end === -1 ? command.length : end + 1;
+        }
+        else {
+            result += c;
+            i++;
+        }
+    }
+    return result;
+}
+
+/**
  * Extract file paths from redirections in a raw command string.
  */
-export function extractRedirectionPaths(command: string): string[] {
+export function extractRedirectionPaths(rawCommand: string): string[] {
+    const command = stripSubstitutions(rawCommand);
     const paths: string[] = [];
     const redirectRegex = /(?:^|[^<])(\d*>>?|&>>?)\s*([^\s&|;<>]+)/g;
     let match: RegExpExecArray | null;
