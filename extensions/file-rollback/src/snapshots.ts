@@ -285,6 +285,11 @@ export class SnapshotStore {
                 return this.snapshots.get(toolKey);
             }
 
+            const userKey = entry ? userEntrySnapshotKey(entry) : undefined;
+            if (userKey && this.snapshots.has(userKey)) {
+                return this.snapshots.get(userKey);
+            }
+
             if (this.snapshots.has(currentId)) {
                 return this.snapshots.get(currentId);
             }
@@ -324,6 +329,22 @@ function toolSnapshotKey(entry: unknown): string | undefined {
     };
     if (e?.type === "message" && e.parentId && e.message?.role === "toolResult" && e.message.toolCallId) {
         return `${e.parentId}:${e.message.toolCallId}`;
+    }
+    return undefined;
+}
+
+/**
+ * Snapshot key for a user message. The session entry ID does not exist yet when
+ * message_end fires, so the message timestamp identifies it instead.
+ */
+export function userSnapshotKey(timestamp: number): string {
+    return `user:${timestamp}`;
+}
+
+function userEntrySnapshotKey(entry: unknown): string | undefined {
+    const e = entry as { type?: string; message?: { role?: string; timestamp?: number } };
+    if (e?.type === "message" && e.message?.role === "user" && typeof e.message.timestamp === "number") {
+        return userSnapshotKey(e.message.timestamp);
     }
     return undefined;
 }

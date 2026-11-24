@@ -4,7 +4,7 @@ import * as os from "os";
 import * as path from "path";
 
 import { findSourceRepo, initShadowRepo, seedShadowRepo, type ShadowGitConfig } from "../src/shadow-git";
-import { SnapshotStore } from "../src/snapshots";
+import { SnapshotStore, userSnapshotKey } from "../src/snapshots";
 
 function mockCtx() {
     return {
@@ -229,5 +229,35 @@ describe("SnapshotStore", () => {
         expect(await store.findSnapshot("toolR1", ctxWithTree)).toBe(hash1);
         expect(await store.findSnapshot("toolR2", ctxWithTree)).toBe(hash2);
         expect(await store.findSnapshot("assistant-abc", ctxWithTree)).toBe(store.getInitialStateCommit());
+    });
+
+    test("resolves per-user-message snapshot from a user entry", async () => {
+        const store = await makeStore(tmpDir);
+        await store.ensureInitial(mockCtx());
+
+        writeFile(tmpDir, "a.txt", "before user 1");
+        const hash1 = await store.createSnapshot(userSnapshotKey(1000), mockCtx());
+        writeFile(tmpDir, "a.txt", "before user 2");
+        const hash2 = await store.createSnapshot(userSnapshotKey(2000), mockCtx());
+        expect(hash1).toBeDefined();
+        expect(hash2).toBeDefined();
+        expect(hash1).not.toBe(hash2);
+
+        const ctxWithTree = {
+            ...mockCtx(),
+            sessionManager: {
+                ...mockCtx().sessionManager,
+                getEntry: mock((id: string) => {
+                    if (id === "user1") return { id: "user1", parentId: null, type: "message", message: { role: "user", timestamp: 1000 } };
+                    if (id === "assistant1") return { id: "assistant1", parentId: "user1", type: "message", message: { role: "assistant" } };
+                    if (id === "user2") return { id: "user2", parentId: "assistant1", type: "message", message: { role: "user", timestamp: 2000 } };
+                    return undefined;
+                }),
+            },
+        } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
+
+        expect(await store.findSnapshot("user1", ctxWithTree)).toBe(hash1);
+        expect(await store.findSnapshot("user2", ctxWithTree)).toBe(hash2);
+        expect(await store.findSnapshot("assistant1", ctxWithTree)).toBe(hash1);
     });
 });

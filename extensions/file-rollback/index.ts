@@ -1,7 +1,7 @@
 /**
  * File Rollback Extension
  *
- * Snapshots the working directory state after each mutating tool result (keyed
+ * Snapshots the working directory state on each user message and after each mutating tool result (keyed
  * by issuing assistant entry + tool call id) and restores those snapshots when
  * the user rolls back to a specific conversation point via /tree. Uses a
  * per-session shadow git repository stored in
@@ -36,7 +36,7 @@ import {
     type ShadowGitConfig,
     withRepoLock,
 } from "./src/shadow-git";
-import { SnapshotStore } from "./src/snapshots";
+import { SnapshotStore, userSnapshotKey } from "./src/snapshots";
 
 interface ExtensionState {
     config: ShadowGitConfig;
@@ -179,6 +179,16 @@ export default function fileRollbackExtension(pi: ExtensionAPI) {
             clearInterval(state.gcInterval);
         }
         stateMap.delete(ctx.sessionManager.getSessionId());
+    });
+
+    pi.on("message_end", async (event, ctx) => {
+        const state = getState(ctx.sessionManager.getSessionId());
+        if (!state) return;
+
+        if (event.message.role !== "user") return;
+
+        await state.snapshots.ensureInitial(ctx);
+        await state.snapshots.createSnapshot(userSnapshotKey(event.message.timestamp), ctx);
     });
 
     pi.on("tool_execution_start", async (_, ctx) => {
