@@ -154,13 +154,15 @@ export default function (pi: ExtensionAPI) {
     /** Persist state, update the status line, and tell tool-permissions + the model. */
     function activateRemote(ctx: ExtensionContext, session: { target: string; port?: number; remoteCwd: string }): void {
         setActiveRemote(session);
-        pi.appendEntry(REMOTE_ENTRY_TYPE, { active: true, target: session.target, port: session.port, remoteCwd: session.remoteCwd } satisfies RemoteEntryData);
+        pi.appendEntry<RemoteEntryData>(REMOTE_ENTRY_TYPE, { active: true, target: session.target, port: session.port, remoteCwd: session.remoteCwd });
         ctx.ui.setStatus(REMOTE_STATUS_KEY, ctx.ui.theme.fg("accent", remoteStatusText(session)));
+
         pi.events.emit("remote:connected", {
             target: session.target,
             remoteCwd: session.remoteCwd,
             exec: createRemoteExecFn(session),
         });
+
         pi.sendMessage({
             customType: "remote",
             content: connectMessage(session),
@@ -177,11 +179,14 @@ export default function (pi: ExtensionAPI) {
             if (notify) ctx.ui.notify("Not connected to a remote machine", "info");
             return;
         }
+
         closeMaster(remote);
         setActiveRemote(null);
-        pi.appendEntry(REMOTE_ENTRY_TYPE, { active: false } satisfies RemoteEntryData);
+        pi.appendEntry<RemoteEntryData>(REMOTE_ENTRY_TYPE, { active: false });
         ctx.ui.setStatus(REMOTE_STATUS_KEY, undefined);
+
         pi.events.emit("remote:disconnected", {});
+
         if (notify) {
             ctx.ui.notify("Remote mode off", "info");
             pi.sendMessage({

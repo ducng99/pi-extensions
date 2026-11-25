@@ -54,7 +54,7 @@ export default function planExtension(pi: ExtensionAPI) {
         planModeActive = false;
         pi.setActiveTools(excludePlanOnlyTools(toolsBeforePlanMode));
         toolsBeforePlanMode = [];
-        pi.appendEntry(PLAN_MODE_ENTRY_TYPE, { active: false, includedGuide: false } satisfies PlanModeEntryData);
+        pi.appendEntry<PlanModeEntryData>(PLAN_MODE_ENTRY_TYPE, { active: false, includedGuide: false });
         pi.events.emit("plan_mode:deactivated", {});
         ctx.ui.setStatus(STATUS_PLAN_MODE, undefined);
 
@@ -147,7 +147,7 @@ export default function planExtension(pi: ExtensionAPI) {
             includeGuide = true;
         }
 
-        pi.appendEntry(PLAN_MODE_ENTRY_TYPE, { active: true, toolsBefore: toolsBeforePlanMode, includedGuide: includeGuide } satisfies PlanModeEntryData);
+        pi.appendEntry<PlanModeEntryData>(PLAN_MODE_ENTRY_TYPE, { active: true, toolsBefore: toolsBeforePlanMode, includedGuide: includeGuide });
         pi.events.emit("plan_mode:activated", PLAN_MODE_PERMISSIONS);
         ctx.ui.setStatus(STATUS_PLAN_MODE, ctx.ui.theme.fg("dim", "⏸ plan mode on"));
 
@@ -274,7 +274,7 @@ export default function planExtension(pi: ExtensionAPI) {
     pi.registerTool({
         name: "write_plan",
         label: "Write Plan",
-        description: "Write a plan markdown file to .pi/plans/<filename>.md. Creates the .pi/plans directory if needed. Overwrites the file if it already exists.",
+        description: "Write a plan markdown file to .pi/plans/<filename>.md. Also overwrites the file if it already exists.",
         promptSnippet: "Write or replace a planning markdown file under .pi/plans",
         promptGuidelines: [
             "Use write_plan to record a plan under .pi/plans/<name>.md while in plan mode. Pass a concise filename and the full markdown plan content.",
@@ -293,9 +293,6 @@ export default function planExtension(pi: ExtensionAPI) {
             const dir = plansDir(ctx.cwd);
             const fullPath = join(dir, filename);
 
-            // Delegate to pi's built-in write tool instead of hand-rolling the
-            // fs calls: it creates parent directories, serializes through the
-            // file mutation queue, and observes abort signals.
             const writeToolDef = createWriteToolDefinition(ctx.cwd);
             await writeToolDef.execute(
                 "write_plan",
@@ -332,10 +329,6 @@ export default function planExtension(pi: ExtensionAPI) {
             const filename = normalizePlanFilename(params.filename);
             const fullPath = join(plansDir(ctx.cwd), filename);
 
-            // Delegate to pi's built-in edit tool instead of hand-rolling text
-            // matching: it errors on missing or ambiguous (non-unique) old_text,
-            // preserves BOM and line endings, handles empty old_text, and
-            // serializes the write through the file mutation queue.
             const editToolDef = createEditToolDefinition(ctx.cwd);
             await editToolDef.execute(
                 "edit_plan",
