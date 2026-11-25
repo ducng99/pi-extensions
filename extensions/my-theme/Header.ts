@@ -83,9 +83,32 @@ function getLogo(line: number) {
  * Replicate the compact extension label pi prints at verbose startup,
  * e.g. `ducng99/pi-extensions:my-theme` or `mcp/src`.
  */
+function isGitSource(source: string): boolean {
+    return source.startsWith("git:") || /^(https?|ssh|git):\/\//i.test(source) || /^[^/@\s]+@[^/:\s]+:/.test(source);
+}
+
 function isPackageSource(sourceInfo: SourceInfo): boolean {
     const source = sourceInfo?.source ?? "";
-    return source.startsWith("npm:") || source.startsWith("git:");
+    return source.startsWith("npm:") || isGitSource(source);
+}
+
+function gitSourceLabel(source: string): string | undefined {
+    let url = source.trim();
+    if (url.startsWith("git:")) {
+        url = url.slice("git:".length).trim();
+    }
+    url = url.replace(/^[a-z+]+:\/\//i, "");
+    url = url.replace(/^[^/@]+@/, "");
+    url = url.replace(/#.*$/, "");
+    // Strip an optional @ref suffix (e.g. @v1.0.0 / @<sha>).
+    url = url.replace(/@[^/@]*$/, "");
+    url = url.replace(/\/+$/, "").replace(/\.git$/, "");
+    // "github.com/owner/repo" or "github.com:owner/repo" -> "owner/repo" (drop the host).
+    const separator = url.search(/[/:]/);
+    if (separator < 0) {
+        return undefined;
+    }
+    return url.slice(separator + 1) || undefined;
 }
 
 function packageSourceLabel(sourceInfo: SourceInfo): string | undefined {
@@ -93,13 +116,8 @@ function packageSourceLabel(sourceInfo: SourceInfo): string | undefined {
     if (source.startsWith("npm:")) {
         return source.slice("npm:".length) || undefined;
     }
-    if (source.startsWith("git:")) {
-        const url = source.slice("git:".length).trim();
-        // Strip an optional @ref suffix (e.g. @v1.0.0 / @<sha>).
-        const withoutRef = url.replace(/@[^/@]*$/, "");
-        // "github.com/owner/repo" -> "owner/repo" (drop the host).
-        const slash = withoutRef.indexOf("/");
-        return slash < 0 ? undefined : withoutRef.slice(slash + 1) || undefined;
+    if (isGitSource(source)) {
+        return gitSourceLabel(source);
     }
     return undefined;
 }
