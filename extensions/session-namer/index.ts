@@ -5,7 +5,7 @@
  * model when available, otherwise falls back to the session's default model.
  */
 
-import type { ExtensionAPI, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 const NAME_MODEL_PROVIDER = "llama.cpp";
 const NAME_MODEL_ID = "titler";
@@ -99,13 +99,45 @@ Your output must be:
     }
 }
 
+function getLastAssistantText(ctx: ExtensionContext): string {
+    const branch = ctx.sessionManager.getBranch();
+    for (let i = branch.length - 1; i >= 0; i--) {
+        const entry = branch[i];
+        if (entry?.type !== "message" || entry.message.role !== "assistant") continue;
+
+        const text = entry.message.content.reduce((msg, cur) => {
+            if (cur.type === "text") msg += cur.text;
+            return msg;
+        }, "").trim();
+        if (text) return text;
+    }
+    return "";
+}
+
 export default function sessionNamer(pi: ExtensionAPI) {
+    let forked = false;
+
+    pi.on("session_start", async (event) => {
+        if (event.reason !== "fork") return;
+        forked = true;
+        pi.setSessionName("");
+    });
+
     pi.on("before_agent_start", async (event, ctx) => {
         if (event.messageType !== "user") return;
         if (pi.getSessionName()) return;
 
-        const prompt = event.prompt.trim();
-        if (!prompt) return;
+        const userPrompt = event.prompt.trim();
+        if (!userPrompt) return;
+
+        let prompt = userPrompt;
+        if (forked) {
+            forked = false;
+            const lastAssistant = getLastAssistantText(ctx);
+            if (lastAssistant) {
+                prompt = `Last assistant message:\n${lastAssistant}\n\nNew user message:\n${userPrompt}`;
+            }
+        }
 
         const notify = ctx.ui.notify;
 
