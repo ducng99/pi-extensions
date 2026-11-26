@@ -22,6 +22,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { createEditToolDefinition, createWriteToolDefinition } from "@earendil-works/pi-coding-agent";
 import { readFile } from "fs/promises";
 import { join } from "path";
+import type Type from "typebox";
 
 import { PLAN_GUIDE_PROMPT } from "./prompt";
 import { createPlanPrompt } from "./renderer";
@@ -318,6 +319,15 @@ export default function planExtension(pi: ExtensionAPI) {
             "Use edit_plan to update a plan file while plan mode is active. old_text must match exactly and appear exactly once in the file",
         ],
         parameters: EditPlanParams,
+        prepareArguments(args) {
+            const input = (args ?? {}) as Partial<Type.Static<typeof EditPlanParams>> & { oldText?: unknown; newText?: unknown };
+            if (typeof input.oldText !== "string" || typeof input.newText !== "string") {
+                return args as Type.Static<typeof EditPlanParams>; // validation reports anything still invalid
+            }
+
+            const { oldText, newText, ...rest } = input;
+            return { ...rest, edits: [...(input.edits ?? []), { oldText, newText }] } as Type.Static<typeof EditPlanParams>;
+        },
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
             if (!planModeActive) {
                 return {
