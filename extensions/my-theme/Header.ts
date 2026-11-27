@@ -1,6 +1,6 @@
 import { DefaultResourceLoader, type Extension, type ExtensionContext, getAgentDir, type ReadonlyFooterDataProvider, type RegisteredMcpServer, type Skill, type SourceInfo, type Theme, VERSION } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { relative } from "path";
+import { join, relative } from "path";
 
 export function createHeader(
     ctx: ExtensionContext,
@@ -15,6 +15,7 @@ export function createHeader(
         const loader = new DefaultResourceLoader({
             cwd: ctx.cwd,
             agentDir: getAgentDir(),
+            additionalSkillPaths: ["~/.claude/skills", join(ctx.cwd, ".claude", "skills")],
         });
         await loader.reload();
 

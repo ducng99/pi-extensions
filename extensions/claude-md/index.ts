@@ -2,6 +2,7 @@
  * Claude MD - Loads ~/.claude/CLAUDE.md, ~/.claude/CLAUDE.local.md and <cwd>/CLAUDE.local.md as context files.
  * When the read tool reads a file in a nested directory, AGENTS.md, CLAUDE.md and CLAUDE.local.md files in the
  * directories between cwd and that file are sent once per session as a message.
+ * Also adds ~/.claude/skills and <cwd>/.claude/skills (trusted projects only) as skill locations.
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -35,6 +36,16 @@ export default function (pi: ExtensionAPI) {
 
     pi.on("session_start", async () => {
         sentPaths.clear();
+    });
+
+    pi.on("resources_discover", async (event, ctx) => {
+        const candidates = [join(homedir(), ".claude", "skills")];
+        if (ctx.isProjectTrusted()) {
+            candidates.push(join(event.cwd, ".claude", "skills"));
+        }
+
+        const skillPaths = candidates.filter(path => existsSync(path) && statSync(path).isDirectory());
+        return { skillPaths };
     });
 
     pi.on("tool_result", async (event, ctx) => {
