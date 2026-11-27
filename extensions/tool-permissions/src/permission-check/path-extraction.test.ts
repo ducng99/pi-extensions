@@ -2,7 +2,6 @@ import { beforeAll, describe, expect, test } from "bun:test";
 
 import { initParser } from "../../../shared/bash-parser/index";
 import { checkPermission } from "./check";
-import { extractRedirectionPaths } from "./path-extraction";
 import { makePerms } from "./test-helpers";
 
 // Initialize parser before all tests
@@ -163,13 +162,49 @@ describe("checkPermission: regex patterns that look like paths (grep/rg/sed/awk)
     });
 });
 
-describe("extractRedirectionPaths: substitutions", () => {
-    test("ignores redirections inside command substitution", () => {
-        expect(extractRedirectionPaths("cat $(date 2>/dev/null)")).toEqual([]);
-        expect(extractRedirectionPaths("cat `date 2>/etc/x`")).toEqual([]);
+describe("checkPermission: redirection targets", () => {
+    const cwd = "/home/user/project";
+
+    test("ignores redirections inside command substitution", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat $(date 2>/etc/x)" }, perms, cwd);
+        expect(result.outOfBoundsPath).toBeUndefined();
     });
 
-    test("still detects redirections outside the substitution", () => {
-        expect(extractRedirectionPaths("cat $(date 2>/dev/null) > /etc/x")).toEqual(["/etc/x"]);
+    test("still detects redirections outside the substitution", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat $(date 2>/dev/null) > /etc/x" }, perms, cwd);
+        expect(result.outOfBoundsPath).toBe("/etc/x");
+    });
+
+    test("`>` inside a quoted argument is not a redirection", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "*" }] });
+        const command = "docker compose exec -T service bash -c 'php -i | grep -E \"cp\\.(pure_profile|api_auth|env)\"' 2>&1 | sed -E 's/(secret =>)\\S+.*/\\1<redacted>/'";
+        const result = await checkPermission("bash", { command }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("quoted redirection target outside cwd asks", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "echo *" }] });
+        expect((await checkPermission("bash", { command: "echo hi > '/etc/x'" }, perms, cwd)).outOfBoundsPath).toBe("/etc/x");
+        expect((await checkPermission("bash", { command: "echo hi > \"/etc/x\"" }, perms, cwd)).outOfBoundsPath).toBe("/etc/x");
+    });
+
+    test("input redirection from outside cwd asks", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat < /etc/shadow" }, perms, cwd);
+        expect(result.outOfBoundsPath).toBe("/etc/shadow");
+    });
+
+    test("words after a redirection target are still checked as arguments", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat > out.txt /etc/shadow" }, perms, cwd);
+        expect(result.outOfBoundsPath).toBe("/etc/shadow");
+    });
+
+    test("redirection in a heredoc statement is checked", async () => {
+        const perms = makePerms({ allow: [{ category: "bash", pattern: "cat *" }] });
+        const result = await checkPermission("bash", { command: "cat <<EOF > /etc/x\nhello\nEOF" }, perms, cwd);
+        expect(result.outOfBoundsPath).toBe("/etc/x");
     });
 });

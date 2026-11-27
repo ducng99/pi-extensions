@@ -28,6 +28,8 @@ export interface LeafCommand {
     args: string[];
     /** True if this leaf contains complex structures (subshells, heredocs, etc.) */
     isComplex: boolean;
+    /** File targets of this command's redirections (`> out`, `2>> log`, `< in`), with outer quotes removed */
+    redirectTargets: string[];
 }
 
 // Alias for backward compatibility with tests
@@ -41,6 +43,7 @@ interface ExtractedCommand {
     argString: string;
     args: string[];
     isComplex: boolean;
+    redirectTargets: string[];
 }
 
 // ============================================================================
@@ -225,6 +228,50 @@ function extractArgs(node: Node): string[] {
     return args;
 }
 
+function stripOuterQuotes(node: Node): string {
+    const text = node.text;
+    if (node.type === "raw_string" && text.length >= 2) return text.slice(1, -1);
+    if (node.type === "string" && text.length >= 2) return text.slice(1, -1);
+    return text;
+}
+
+interface RedirectInfo {
+    targets: string[];
+    /** Words that tree-sitter attaches to a redirect but bash passes to the command (`cat > out a b` runs `cat a b`) */
+    extraArgs: string[];
+}
+
+/**
+ * Collect redirection targets from the direct `file_redirect` children of a
+ * command or redirected_statement node, including ones nested in a heredoc
+ * redirect (`cat <<EOF > out`). File-descriptor duplications (`2>&1`, `>&-`)
+ * have no file target and are skipped.
+ */
+function collectRedirects(node: Node): RedirectInfo {
+    const info: RedirectInfo = { targets: [], extraArgs: [] };
+
+    for (const child of node.children) {
+        if (child.type === "heredoc_redirect") {
+            const nested = collectRedirects(child);
+            info.targets.push(...nested.targets);
+            info.extraArgs.push(...nested.extraArgs);
+            continue;
+        }
+        if (child.type !== "file_redirect") continue;
+
+        const destinations = child.childrenForFieldName("destination");
+        const target = destinations[0];
+        if (target && target.type !== "process_substitution" && !/^\d+$/.test(target.text)) {
+            info.targets.push(stripOuterQuotes(target));
+        }
+        for (const extra of destinations.slice(1)) {
+            info.extraArgs.push(extra.text);
+        }
+    }
+
+    return info;
+}
+
 function hasComplexDescendant(node: Node): boolean {
     if (isComplexNodeType(node.type)) {
         return true;
@@ -293,10 +340,12 @@ function extractTopLevelCommands(node: Node): ExtractedCommand[] {
         case "declaration_command":
         case "negated_command":
         case "test_command": {
+            const redirects = collectRedirects(node);
             commands.push({
                 argString: normalizeCommandText(node.text),
-                args: extractArgs(node),
+                args: [...extractArgs(node), ...redirects.extraArgs],
                 isComplex: isComplexCommand(node),
+                redirectTargets: redirects.targets,
             });
             break;
         }
@@ -310,7 +359,7 @@ function extractTopLevelCommands(node: Node): ExtractedCommand[] {
             // For a list, descend into the inner structure and append the
             // redirections to the last extracted command.
             let innerNode: Node | null = null;
-            const redirects: string[] = [];
+            const redirectTexts: string[] = [];
 
             for (const child of node.children) {
                 if (
@@ -318,27 +367,33 @@ function extractTopLevelCommands(node: Node): ExtractedCommand[] {
                     || child.type === "heredoc_redirect"
                     || child.type === "herestring_redirect"
                 ) {
-                    redirects.push(child.text);
+                    redirectTexts.push(child.text);
                 }
                 else if (isCommandNode(child)) {
                     innerNode = child;
                 }
             }
 
+            const redirects = collectRedirects(node);
+
             if (innerNode && isCommandLeaf(innerNode.type)) {
+                const innerRedirects = collectRedirects(innerNode);
                 commands.push({
                     argString: normalizeCommandText(node.text),
-                    args: extractArgs(innerNode),
+                    args: [...extractArgs(innerNode), ...innerRedirects.extraArgs, ...redirects.extraArgs],
                     isComplex: isComplexCommand(node),
+                    redirectTargets: [...innerRedirects.targets, ...redirects.targets],
                 });
             }
             else if (innerNode && isContainerNode(innerNode.type)) {
                 const innerCommands = extractTopLevelCommands(innerNode);
 
-                if (innerCommands.length > 0 && redirects.length > 0) {
+                if (innerCommands.length > 0 && redirectTexts.length > 0) {
                     const lastCommand = innerCommands[innerCommands.length - 1]!;
-                    const redirectText = " " + redirects.map(r => normalizeCommandText(r)).join(" ");
+                    const redirectText = " " + redirectTexts.map(r => normalizeCommandText(r)).join(" ");
                     lastCommand.argString = normalizeCommandText(lastCommand.argString + redirectText);
+                    lastCommand.args.push(...redirects.extraArgs);
+                    lastCommand.redirectTargets.push(...redirects.targets);
                 }
 
                 commands.push(...innerCommands);
@@ -362,6 +417,7 @@ function extractTopLevelCommands(node: Node): ExtractedCommand[] {
                 argString: normalizeCommandText(node.text),
                 args: extractArgs(node),
                 isComplex: true,
+                redirectTargets: [],
             });
             break;
         }

@@ -6,7 +6,7 @@ import type { ClassifierSessionContext } from "../session-context";
 import { DEFAULT_ALLOWED_BASH_COMMANDS } from "../tool-categories";
 import { appendLog } from "./log";
 import { resolveModeFallback } from "./mode-fallback";
-import { extractPathArgs, extractRedirectionPaths } from "./path-extraction";
+import { extractPathArgs } from "./path-extraction";
 import { isOutOfBoundsPath, isSensitivePath, resolveArgPath } from "./paths";
 import type { PermissionDecision, PermissionMode, SessionContextProvider, SessionEntriesProvider } from "./types";
 import { REASON_BASH_COMPLEX, REASON_BASH_PARSE_ERROR } from "./types";
@@ -49,7 +49,7 @@ function getCdTarget(
  */
 function isCommandOnSensitivePath(
     args: string[],
-    argString: string,
+    redirectTargets: string[],
     resolveCwd: string,
     boundaryCwd: string,
 ): boolean {
@@ -57,7 +57,7 @@ function isCommandOnSensitivePath(
         if (path === "/dev/null" || /^nul:?$/i.test(path)) continue;
         if (isSensitivePath(resolveArgPath(path, resolveCwd), boundaryCwd)) return true;
     }
-    for (const path of extractRedirectionPaths(argString)) {
+    for (const path of redirectTargets) {
         if (path === "/dev/null" || /^nul:?$/i.test(path)) continue;
         if (isSensitivePath(resolveArgPath(path, resolveCwd), boundaryCwd)) return true;
     }
@@ -71,7 +71,7 @@ function isCommandOnSensitivePath(
  */
 function findOutOfBoundsPath(
     args: string[],
-    argString: string,
+    redirectTargets: string[],
     resolveCwd: string,
     boundaryCwd: string,
     additionalDirs: string[],
@@ -86,7 +86,8 @@ function findOutOfBoundsPath(
         if (isSessionAllowed?.(resolved)) continue;
         return resolved;
     }
-    for (const path of extractRedirectionPaths(argString)) {
+    for (const path of redirectTargets) {
+        if (path === "/dev/null" || /^nul:?$/i.test(path)) continue;
         const resolved = resolveArgPath(path, resolveCwd);
         if (!isOutOfBoundsPath(path, resolveCwd, boundaryCwd, additionalDirs)) continue;
         if (isSessionAllowed?.(resolved)) continue;
@@ -185,7 +186,7 @@ export async function checkBashPermission(
         // 3. Out-of-bounds check for this command using the effective cwd to
         // resolve relative paths, but the original session cwd as the bound.
         const outOfBoundsPath = effectiveCwd
-            ? findOutOfBoundsPath(leafCmd.args, leafCmd.argString, effectiveCwd, cwd, additionalDirs, isSessionAllowed)
+            ? findOutOfBoundsPath(leafCmd.args, leafCmd.redirectTargets, effectiveCwd, cwd, additionalDirs, isSessionAllowed)
             : null;
         if (outOfBoundsPath) {
             return {
@@ -198,7 +199,7 @@ export async function checkBashPermission(
         // 3b. Sensitive path check: paths inside .pi/.claude must always ask
         // (the plans subdirectories are exempt — they hold only the agent's
         // own notes, not permission rules).
-        if (effectiveCwd && isCommandOnSensitivePath(leafCmd.args, leafCmd.argString, effectiveCwd, cwd)) {
+        if (effectiveCwd && isCommandOnSensitivePath(leafCmd.args, leafCmd.redirectTargets, effectiveCwd, cwd)) {
             return { decision: "ask", reason: "⚠ Accessing sensitive files/directories." };
         }
 
