@@ -52,14 +52,20 @@ export function isInsideDir(resolvedPath: string, dir: string): boolean {
  * The plan subdirectories (`<boundaryCwd>/.pi/plans` and
  * `<boundaryCwd>/.claude/plans`) are exempt: they only hold the agent's own
  * working notes, not permission rules, so they are not sensitive.
+ *
+ * When `readOnly` is true, the skills subdirectories (`<boundaryCwd>/.pi/skills`
+ * and `<boundaryCwd>/.claude/skills`) are also exempt. Writing to them still
+ * asks, since skills steer the agent's behaviour.
  */
-export function isSensitivePath(resolvedPath: string, boundaryCwd: string): boolean {
+export function isSensitivePath(resolvedPath: string, boundaryCwd: string, readOnly = false): boolean {
     const sensitiveDirs = [".pi", ".claude"];
+    const exemptSubdirs = readOnly ? ["plans", "skills"] : ["plans"];
     const boundary = normalize(resolve(boundaryCwd));
     for (const dir of sensitiveDirs) {
         const sensitiveDir = normalize(resolve(boundary, dir));
         if (!isInsideDir(resolvedPath, sensitiveDir)) continue;
-        if (isInsideDir(resolvedPath, normalize(resolve(boundary, dir, "plans")))) continue;
+        const isExempt = exemptSubdirs.some(subdir => isInsideDir(resolvedPath, normalize(resolve(boundary, dir, subdir))));
+        if (isExempt) continue;
         return true;
     }
     return false;

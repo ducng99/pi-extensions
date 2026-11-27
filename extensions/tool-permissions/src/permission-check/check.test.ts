@@ -123,6 +123,29 @@ describe("checkPermission: sensitive .pi/.claude paths", () => {
         expect(result.decision).toBe("ask"); // read is not default-allowed, but it's not sensitive
     });
 
+    test("does not treat read on .claude/skills as sensitive", async () => {
+        const perms = makePerms({ allow: [{ category: "read", pattern: "*" }] });
+        const result = await checkPermission("read", { path: ".claude/skills/my-skill/SKILL.md" }, perms, cwd);
+        expect(result.decision).toBe("allow");
+    });
+
+    test("does not treat read on .pi/skills as sensitive", async () => {
+        const result = await checkPermission("read", { path: ".pi/skills/my-skill/SKILL.md" }, makePerms({}), cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason ?? "").not.toContain("sensitive");
+        }
+    });
+
+    test("asks for write on .claude/skills even with allow rule", async () => {
+        const perms = makePerms({ allow: [{ category: "edit", pattern: "*" }] });
+        const result = await checkPermission("write", { path: ".claude/skills/my-skill/SKILL.md" }, perms, cwd);
+        expect(result.decision).toBe("ask");
+        if (result.decision === "ask") {
+            expect(result.reason).toContain("sensitive");
+        }
+    });
+
     test("allows read on .pi when outside cwd (absolute path to home/.pi)", async () => {
         // Paths outside cwd are handled by out-of-bounds, not sensitive-path check
         const result = await checkPermission("read", { path: "/home/user/.pi/settings.json" }, makePerms({}), cwd);

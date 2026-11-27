@@ -72,7 +72,7 @@ export async function checkPermission(
     // permissions and must never be modified silently.
     if (FILE_PATH_TOOLS.has(toolName)) {
         const filePath = input.path as string;
-        if (typeof filePath === "string" && isSensitivePath(resolveArgPath(filePath, cwd), cwd)) {
+        if (typeof filePath === "string" && isSensitivePath(resolveArgPath(filePath, cwd), cwd, toolName === "read")) {
             return { decision: "ask", reason: "⚠ Accessing sensitive files/directories." };
         }
     }
